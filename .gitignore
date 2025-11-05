@@ -1,0 +1,22 @@
+﻿# Large files and data
+model/
+dataset/
+uploads/
+*.h5
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+venv311/
+.venv/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Environment
+.env

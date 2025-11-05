@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ColonAI — Demo UI</title>
+
+    <!-- Fonts -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Poppins:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      :root {
+        --bg: #06070a; /* deep black */
+        --nav: #0f1724; /* navy/charcoal */
+        --card: #0b0d12; /* card background */
+        --muted: #9aa4b2;
+        --accent: #08a7ff; /* neon cyan */
+        --accent-2: #4fc3ff;
+        --glass: rgba(255, 255, 255, 0.04);
+        --glow: 0 6px 30px rgba(8, 167, 255, 0.08),
+          inset 0 0 18px rgba(8, 167, 255, 0.03);
+        --soft-radius: 12px;
+        --radius-lg: 18px;
+        --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.6);
+        --mono: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: var(--mono);
+        background: linear-gradient(180deg, var(--bg) 0%, #081025 60%);
+        color: #dbe7f5;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        /* allow scrolling so panels can overflow on smaller screens */
+        overflow: auto;
+      }
+
+      /* App layout */
+      .app {
+        display: grid;
+        grid-template-columns: 260px 1fr 360px;
+        grid-template-rows: 72px 1fr;
+        height: 100vh;
+        gap: 18px;
+        padding: 20px;
+      }
+
+      /* Topbar */
+      .topbar {
+        grid-column: 1 / -1;
+        height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.02),
+          rgba(255, 255, 255, 0.01)
+        );
+        border-radius: 16px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid rgba(127, 140, 160, 0.04);
+        backdrop-filter: blur(6px);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        background: linear-gradient(135deg, #071020, #0b1830);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: var(--glow);
+        border: 1px solid rgba(71, 146, 255, 0.06);
+      }
+      .logo svg {
+        filter: drop-shadow(0 6px 18px rgba(8, 167, 255, 0.08));
+      }
+      .brand .title {
+        font-weight: 700;
+        font-family: "Poppins", var(--mono);
+        letter-spacing: 0.2px;
+      }
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .top-actions .profile {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px;
+        border-radius: 10px;
+        background: var(--glass);
+        border: 1px solid rgba(255, 255, 255, 0.03);
+      }
+      .profile img {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+
+      /* Sidebar */
+      .sidebar {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.015),
+          rgba(255, 255, 255, 0.01)
+        );
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        box-shadow: var(--shadow-sm);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        border: 1px solid rgba(127, 140, 160, 0.03);
+      }
+      .nav-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 10px;
+        border-radius: 12px;
+        color: var(--muted);
+        cursor: pointer;
+        transition: all 0.18s ease;
+        position: relative;
+        overflow: visible;
+      }
+      .nav-item svg {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+      }
+      .nav-item:hover,
+      .nav-item.active {
+        color: var(--accent);
+        background: linear-gradient(
+          90deg,
+          rgba(8, 167, 255, 0.03),
+          rgba(79, 195, 255, 0.02)
+        );
+        box-shadow: 0 8px 26px rgba(8, 167, 255, 0.04);
+        transform: translateY(-2px);
+      }
+      .nav-item .label {
+        font-weight: 600;
+      }
+      .nav-footer {
+        margin-top: auto;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      /* Main panels */
+      .upload-area {
+        padding: 18px;
+        border-radius: var(--soft-radius);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.01),
+          rgba(255, 255, 255, 0.007)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.02);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .dropzone {
+        flex: 1;
+        min-height: 420px;
+        border-radius: 12px;
+        border: 2px dashed rgba(255, 255, 255, 0.03);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: repeating-linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.005) 0 2px,
+          transparent 2px 8px
+        );
+        position: relative;
+        transition: all 0.18s ease;
+      }
+      .dropzone.hover {
+        border-color: rgba(8, 167, 255, 0.22);
+        box-shadow: 0 20px 50px rgba(8, 167, 255, 0.04);
+      }
+      .drop-content {
+        text-align: center;
+        color: var(--muted);
+        max-width: 540px;
+        padding: 28px;
+      }
+      .drop-content h3 {
+        margin: 0 0 8px 0;
+        font-size: 20px;
+      }
+      .btn {
+        display: inline-block;
+        padding: 10px 16px;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid rgba(8, 167, 255, 0.14);
+        font-weight: 600;
+        color: var(--accent);
+        cursor: pointer;
+        margin-top: 8px;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+      .btn:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 34px rgba(8, 167, 255, 0.06);
+      }
+
+      /* Image preview + overlay */
+      .preview-wrap {
+        position: relative;
+        height: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      .viewer {
+        border-radius: 12px;
+        overflow: hidden;
+        flex: 1;
+        background: #05060a;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+      }
+      .viewer img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+      .viewer.show img {
+        opacity: 1;
+      }
+      .overlay-canvas {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .viewer-controls {
+        display: flex;
+        gap: 10px;
+        padding: 12px;
+        background: linear-gradient(180deg, rgba(0, 0, 0, 0.35), transparent);
+        position: absolute;
+        right: 14px;
+        top: 14px;
+        border-radius: 10px;
+      }
+
+      /* Analysis summary (right column) */
+      .summary {
+        padding: 18px;
+        border-radius: var(--radius-lg);
+        background: linear-gradient(
+          180deg,
+          rgba(8, 14, 22, 0.7),
+          rgba(4, 8, 16, 0.5)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.02);
+        box-shadow: var(--shadow-sm);
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .summary h4 {
+        margin: 0;
+        font-family: "Poppins", var(--mono);
+        letter-spacing: 0.2px;
+      }
+      .prob-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .prob-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .prob-item .label {
+        width: 120px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .prob-bar {
+        flex: 1;
+        height: 12px;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.02),
+          rgba(255, 255, 255, 0.01)
+        );
+        border-radius: 8px;
+        overflow: hidden;
+        position: relative;
+      }
+      .prob-bar span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 0;
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        display: block;
+        border-radius: 8px;
+        box-shadow: 0 10px 30px rgba(8, 167, 255, 0.06);
+      }
+      .confidence {
+        width: 46px;
+        text-align: right;
+        font-weight: 700;
+        font-family: "Poppins", var(--mono);
+      }
+
+      .summary .summary-text {
+        background: rgba(255, 255, 255, 0.018);
+        padding: 12px;
+        border-radius: 10px;
+        font-size: 14px;
+        line-height: 1.4;
+        color: #cfe9ff;
+      }
+
+      .controls {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .small-btn {
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      /* Chat (center-right area) */
+      .chat {
+        grid-column: 2 / 4; /* spans center + right for chat view when active */
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+
+      .chat-wrap {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 18px;
+        height: calc(100% - 20px);
+      }
+
+      .history {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.01),
+          rgba(255, 255, 255, 0.007)
+        );
+        border-radius: var(--soft-radius);
+        padding: 12px;
+        overflow: auto;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+      }
+
+      .conversation {
+        background: linear-gradient(
+          180deg,
+          rgba(2, 6, 12, 0.6),
+          rgba(1, 3, 7, 0.5)
+        );
+        border-radius: var(--soft-radius);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.02);
+      }
+
+      .messages {
+        flex: 1;
+        overflow: auto;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .msg {
+        max-width: 78%;
+        padding: 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.45;
+      }
+      .msg.user {
+        align-self: flex-end;
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.02),
+          rgba(255, 255, 255, 0.01)
+        );
+        color: #e6eefc;
+      }
+      .msg.ai {
+        align-self: flex-start;
+        background: linear-gradient(
+          180deg,
+          rgba(8, 167, 255, 0.06),
+          rgba(8, 167, 255, 0.03)
+        );
+        border: 1px solid rgba(8, 167, 255, 0.09);
+        color: #dff6ff;
+      }
+
+      .typing {
+        display: inline-block;
+        height: 8px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 6px;
+      }
+      .typing .dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        margin: 0 3px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.6);
+        opacity: 0;
+        animation: dot 1s linear infinite;
+      }
+      .typing .dot:nth-child(2) {
+        animation-delay: 0.15s;
+      }
+      .typing .dot:nth-child(3) {
+        animation-delay: 0.3s;
+      }
+      @keyframes dot {
+        0% {
+          opacity: 0;
+        }
+        50% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      .chat-input {
+        display: flex;
+        gap: 8px;
+        padding: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.02);
+      }
+      .chat-input textarea {
+        flex: 1;
+        padding: 10px;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        min-height: 44px;
+        color: inherit;
+        resize: none;
+      }
+      .chat-input button {
+        padding: 10px 14px;
+        border-radius: 10px;
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        border: none;
+        color: #04202e;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      /* Login modal */
+      .login-modal {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(
+          180deg,
+          rgba(2, 6, 12, 0.7),
+          rgba(2, 6, 12, 0.85)
+        );
+        z-index: 60;
+        transition: opacity 0.25s ease;
+      }
+      .login-card {
+        width: 420px;
+        padding: 24px;
+        border-radius: 16px;
+        background: linear-gradient(
+          180deg,
+          rgba(8, 14, 22, 0.75),
+          rgba(6, 10, 18, 0.6)
+        );
+        border: 1px solid rgba(255, 255, 255, 0.02);
+        box-shadow: var(--shadow-sm);
+      }
+      .login-card h2 {
+        margin: 0 0 6px 0;
+        font-family: "Poppins", var(--mono);
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .input {
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.01),
+          rgba(255, 255, 255, 0.005)
+        );
+        border-radius: 10px;
+        padding: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        color: inherit;
+        outline: none;
+        transition: box-shadow 0.12s ease, border-color 0.12s ease;
+      }
+      .input:focus {
+        box-shadow: 0 6px 30px rgba(8, 167, 255, 0.06);
+        border-color: rgba(8, 167, 255, 0.24);
+      }
+      .login-cta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 16px;
+      }
+      .ghost {
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        padding: 10px 12px;
+        border-radius: 10px;
+        color: var(--muted);
+      }
+
+      /* Responsive */
+      @media (max-width: 1100px) {
+        .app {
+          grid-template-columns: 220px 1fr;
+          grid-template-rows: 72px 1fr;
+          margin: 14px;
+        }
+        .chat-wrap {
+          grid-template-columns: 1fr;
+          grid-auto-rows: minmax(240px, auto);
+        }
+        .chat {
+          grid-column: 2/-1;
+        }
+        .summary {
+          display: none;
+        }
+      }
+      @media (max-width: 720px) {
+        .app {
+          grid-template-columns: 1fr;
+          grid-template-rows: 72px 1fr;
+          padding: 12px;
+        }
+        .sidebar {
+          display: none;
+        }
+        .topbar {
+          border-radius: 12px;
+        }
+        .chat-wrap {
+          display: block;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      class="login-modal"
+      id="loginModal"
+      aria-hidden="false"
+      role="dialog"
+      aria-label="Sign in to ColonAI"
+    >
+      <div class="login-card" role="document">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <div class="logo" aria-hidden="true">
+            <!-- simple abstract logo -->
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12 2C14.2091 2 16 3.79086 16 6"
+                stroke="#08a7ff"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M7 9C9 8 10 6 12 6C14 6 15 8 17 9C19.5 11 21 14 21 17C21 19 18 22 14 22C10.5 22 8 20 7 18C6 16 6 11 7 9Z"
+                stroke="#4fc3ff"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+          <div>
+            <div style="font-weight: 700; font-family: 'Poppins', var(--mono)">
+              ColonAI
+            </div>
+            <div style="font-size: 12px; color: var(--muted)">
+              Precision through vision — sign in
+            </div>
+          </div>
+        </div>
+
+        <h2 style="margin-top: 18px">Welcome back</h2>
+        <p style="margin: 0; color: var(--muted)">
+          Sign in to access patient scans and AI analysis tools.
+        </p>
+
+        <div class="field" style="margin-top: 16px">
+          <label class="sr-only">Email</label>
+          <input
+            class="input"
+            id="email"
+            type="email"
+            placeholder="you@hospital.org"
+            value="doctor@demo.test"
+          />
+          <label class="sr-only">Password</label>
+          <input
+            class="input"
+            id="password"
+            type="password"
+            placeholder="••••••••"
+            value="demo"
+          />
+        </div>
+
+        <div class="login-cta">
+          <button class="ghost" id="ghostSign">Use demo</button>
+          <div style="display: flex; gap: 8px">
+            <button class="btn" id="loginBtn">Sign in</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app" id="app" aria-hidden="true">
+      <!-- Topbar -->
+      <div class="topbar" role="banner">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 2C14.21 2 16 3.79 16 6"
+                stroke="#08a7ff"
+                stroke-width="1.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M7 9C9 8 10 6 12 6C14 6 15 8 17 9C19.5 11 21 14 21 17C21 19 18 22 14 22C10.5 22 8 20 7 18C6 16 6 11 7 9Z"
+                stroke="#4fc3ff"
+                stroke-width="1.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+          <div>
+            <div class="title">ColonAI</div>
+            <div style="font-size: 12px; color: var(--muted)">
+              AI-powered colon imaging diagnostics
+            </div>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <div style="text-align: right">
+            <div style="font-weight: 600">Dr. Demo</div>
+            <div style="font-size: 12px; color: var(--muted)">
+              Clinical Access
+            </div>
+          </div>
+          <div class="profile" role="img" aria-label="User profile">
+            <img
+              src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=400&auto=format&fit=crop&ixlib=rb-4.0.3&s=8e1d8a5b1c7f9637a7e6a0d2daa3ca6a"
+              alt="profile photo"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="sidebar" role="navigation" aria-label="Main navigation">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-weight: 700">Workspace</div>
+          <div style="font-size: 12px; color: var(--muted)">
+            Research Lab • Demo
+          </div>
+        </div>
+
+        <nav class="nav-list" aria-label="Primary">
+          <div class="nav-item active" data-section="home">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M3 10.5L12 4l9 6.5"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <div class="label">Home</div>
+          </div>
+          <div class="nav-item" data-section="upload">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 3v12"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+              <path
+                d="M21 21H3"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+            <div class="label">Upload</div>
+          </div>
+          <div class="nav-item" data-section="chat">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+            <div class="label">Chat</div>
+          </div>
+          <div class="nav-item" data-section="history">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M21 12a9 9 0 1 1-2.6-6.1"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+              />
+            </svg>
+            <div class="label">History</div>
+          </div>
+          <div class="nav-item" data-section="settings">
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"
+                stroke="currentColor"
+                stroke-width="1.6"
+              />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 0 1 2.71 17.9l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 5.7A2 2 0 0 1 7 2.9l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c.1.6.56 1.09 1.14 1.39"
+                stroke="currentColor"
+                stroke-width="1.2"
+              />
+            </svg>
+            <div class="label">Settings</div>
+          </div>
+        </nav>
+
+        <div class="nav-footer">v0.9 • demo</div>
+      </aside>
+
+      <!-- Upload / Viewer -->
+      <main
+        class="upload-area"
+        id="homeView"
+        role="main"
+        aria-label="Upload and analysis"
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          "
+        >
+          <div style="display: flex; flex-direction: column">
+            <div style="font-weight: 700">Analysis Workspace</div>
+            <div style="font-size: 13px; color: var(--muted)">
+              Upload endoscopy images or DICOM screenshots for AI review
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button class="small-btn" id="toggleOverlay">AI Overlay: ON</button>
+            <button class="small-btn" id="analyzeBtn">Run Analysis</button>
+          </div>
+        </div>
+
+        <div class="dropzone" id="dropzone" aria-label="Upload image area">
+          <div class="drop-content" id="dropContent">
+            <h3>Drop colon image here</h3>
+            <p style="color: var(--muted)">
+              Drag & drop an endoscopy frame or click to choose a file.
+              Supported: .jpg .png
+            </p>
+            <div style="margin-top: 12px">
+              <label class="btn" for="fileInput" role="button"
+                >Upload image</label
+              >
+              <input
+                id="fileInput"
+                type="file"
+                accept="image/*"
+                style="display: none"
+              />
+            </div>
+          </div>
+
+          <div
+            class="preview-wrap"
+            id="previewWrap"
+            style="display: none; width: 100%; height: 100%"
+          >
+            <div class="viewer" id="viewer" aria-live="polite">
+              <img id="previewImage" alt="Uploaded colon scan preview" />
+              <canvas id="overlay" class="overlay-canvas"></canvas>
+              <div
+                class="viewer-controls"
+                role="group"
+                aria-label="Image controls"
+              >
+                <button class="small-btn" id="zoomIn">Zoom +</button>
+                <button class="small-btn" id="zoomOut">Zoom -</button>
+                <button class="small-btn" id="resetView">Reset</button>
+              </div>
+            </div>
+
+            <div
+              style="
+                display: flex;
+                gap: 12px;
+                margin-top: 12px;
+                align-items: center;
+              "
+            >
+              <div style="flex: 1">
+                <div style="font-size: 13px; color: var(--muted)">
+                  Last analysis: <span id="lastAnalysis">—</span>
+                </div>
+                <div style="font-size: 12px; color: var(--muted)">
+                  Image dimensions: <span id="imgDims">—</span>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px">
+                <button class="btn" id="downloadReport">Download Report</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Analysis Summary -->
+      <aside
+        class="summary"
+        id="summaryPanel"
+        role="complementary"
+        aria-label="Analysis summary"
+      >
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          "
+        >
+          <h4>Analysis Results</h4>
+          <div style="font-size: 12px; color: var(--muted)">
+            Model v0.9 • explainable
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 10px">
+          <div style="display: flex; gap: 12px; align-items: center">
+            <div
+              style="
+                width: 64px;
+                height: 64px;
+                border-radius: 10px;
+                background: linear-gradient(180deg, #071124, #081425);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid rgba(8, 167, 255, 0.05);
+              "
+            >
+              <div style="font-weight: 700; font-family: 'Poppins'">91%</div>
+            </div>
+            <div>
+              <div style="font-weight: 700">Polyp Detected</div>
+              <div style="font-size: 13px; color: var(--muted)">
+                Region: sigmoid colon • High confidence
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+              "
+            >
+              <div style="font-weight: 700">Probabilities</div>
+              <div style="font-size: 12px; color: var(--muted)">
+                Confidence intervals shown
+              </div>
+            </div>
+
+            <div class="prob-list" style="margin-top: 10px">
+              <div class="prob-item">
+                <div class="label">Polyp</div>
+                <div class="prob-bar"><span id="bar-polyp"></span></div>
+                <div class="confidence" id="val-polyp">0%</div>
+              </div>
+              <div class="prob-item">
+                <div class="label">Inflammation</div>
+                <div class="prob-bar"><span id="bar-inflam"></span></div>
+                <div class="confidence" id="val-inflam">0%</div>
+              </div>
+              <div class="prob-item">
+                <div class="label">Ulceration</div>
+                <div class="prob-bar"><span id="bar-ulcer"></span></div>
+                <div class="confidence" id="val-ulcer">0%</div>
+              </div>
+              <div class="prob-item">
+                <div class="label">Low-quality / Artefact</div>
+                <div class="prob-bar"><span id="bar-artef"></span></div>
+                <div class="confidence" id="val-artef">0%</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-weight: 700; margin-bottom: 8px">AI Summary</div>
+            <div class="summary-text" id="aiSummary">
+              No analysis run yet. Upload an image and click “Run Analysis” to
+              get a concise diagnostic summary, probability breakdowns, and
+              highlighted areas of interest.
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px; align-items: center">
+            <button class="btn" id="reAnalyze">Re-run</button>
+            <button class="small-btn" id="explainBtn">Explain decision</button>
+            <div style="flex: 1"></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Chat area -->
+      <section
+        class="chat"
+        aria-label="Chat with AI assistant"
+        id="chatSection"
+      >
+        <div class="chat-wrap" style="height: 100%; padding-top: 0">
+          <div class="history">
+            <div style="font-weight: 700; margin-bottom: 8px">Sessions</div>
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div
+                style="
+                  padding: 10px;
+                  border-radius: 10px;
+                  background: rgba(255, 255, 255, 0.01);
+                  border: 1px solid rgba(255, 255, 255, 0.02);
+                "
+              >
+                Session • 2025-11-04 •
+                <span style="color: var(--muted)">Polyp analysis</span>
+              </div>
+              <div
+                style="
+                  padding: 10px;
+                  border-radius: 10px;
+                  background: rgba(255, 255, 255, 0.01);
+                  border: 1px solid rgba(255, 255, 255, 0.02);
+                "
+              >
+                Session • 2025-10-12 •
+                <span style="color: var(--muted)">Follow-up scan</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="conversation" role="region" aria-label="Conversation">
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+              "
+            >
+              <div style="font-weight: 700">AI Assistant</div>
+              <div style="font-size: 12px; color: var(--muted)">
+                Clinical chat mode • explainable
+              </div>
+            </div>
+
+            <div class="messages" id="messages" aria-live="polite">
+              <div class="msg ai">
+                Hello. Upload an image and click
+                <strong>Run Analysis</strong> or ask me questions about a case.
+              </div>
+            </div>
+
+            <div class="chat-input" role="form" aria-label="Message input">
+              <textarea
+                id="chatInput"
+                placeholder="Ask the AI about the image, findings, or request an explanation..."
+                aria-label="Message"
+              ></textarea>
+              <button id="sendBtn">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      // Basic interactivity: login simulation, upload preview, overlay highlight, fake analysis, chat mock
+      (function () {
+        const loginModal = document.getElementById("loginModal");
+        const app = document.getElementById("app");
+        const loginBtn = document.getElementById("loginBtn");
+        const ghostSign = document.getElementById("ghostSign");
+
+        function showApp() {
+          loginModal.style.display = "none";
+          app.setAttribute("aria-hidden", "false");
+          document.getElementById("loginModal").setAttribute("aria-hidden", "true");
+        }
+
+        // Auto-show app in local/dev environments so testers don't get stuck on the modal.
+        try {
+          const host = window.location.hostname;
+          if (host === "localhost" || host === "127.0.0.1") {
+            // small delay so the UI paints correctly before hiding modal
+            setTimeout(showApp, 120);
+          }
+        } catch (err) {
+          // ignore; default behavior remains manual sign-in
+        }
+        loginBtn.addEventListener("click", showApp);
+        ghostSign.addEventListener("click", showApp);
+
+        // NAV
+        const navItems = document.querySelectorAll(".nav-item");
+        navItems.forEach((it) =>
+          it.addEventListener("click", (e) => {
+            navItems.forEach((n) => n.classList.remove("active"));
+            it.classList.add("active");
+            // Basic section switching: focus Upload, Chat, History
+            const sec = it.dataset.section;
+            if (sec === "upload" || sec === "home") {
+              document
+                .getElementById("homeView")
+                .scrollIntoView({ behavior: "smooth" });
+            } else if (sec === "chat") {
+              document
+                .getElementById("chatSection")
+                .scrollIntoView({ behavior: "smooth" });
+            } else {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          })
+        );
+
+        // Drag & drop + preview
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("fileInput");
+        const previewWrap = document.getElementById("previewWrap");
+        const previewImage = document.getElementById("previewImage");
+        const overlay = document.getElementById("overlay");
+        const viewer = document.getElementById("viewer");
+        const lastAnalysis = document.getElementById("lastAnalysis");
+        const imgDims = document.getElementById("imgDims");
+        let currentImage = null;
+        let lastFile = null; // store the uploaded File object for sending to server
+        let scale = 1;
+
+        function prevent(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        ["dragenter", "dragover"].forEach((ev) =>
+          dropzone.addEventListener(ev, (e) => {
+            prevent(e);
+            dropzone.classList.add("hover");
+          })
+        );
+        ["dragleave", "drop"].forEach((ev) =>
+          dropzone.addEventListener(ev, (e) => {
+            prevent(e);
+            dropzone.classList.remove("hover");
+          })
+        );
+        dropzone.addEventListener("drop", (e) => {
+          const f = e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f) loadFile(f);
+        });
+        fileInput.addEventListener("change", (e) => {
+          const f = e.target.files[0];
+          if (f) loadFile(f);
+        });
+
+        function loadFile(f) {
+          const reader = new FileReader();
+          reader.onload = function (ev) {
+            previewImage.src = ev.target.result;
+            previewImage.onload = function () {
+              previewWrap.style.display = "flex";
+              viewer.classList.add("show");
+              currentImage = previewImage;
+              lastFile = f;
+              imgDims.textContent =
+                previewImage.naturalWidth + " x " + previewImage.naturalHeight;
+              lastAnalysis.textContent = "Not analyzed";
+              drawOverlaySample(); // show placeholder overlay
+              // resize overlay canvas to viewer
+              resizeCanvas();
+            };
+          };
+          reader.readAsDataURL(f);
+        }
+
+        window.addEventListener("resize", resizeCanvas);
+        function resizeCanvas() {
+          const rect = viewer.getBoundingClientRect();
+          overlay.width = rect.width;
+          overlay.height = rect.height;
+          drawOverlaySample();
+        }
+
+        // AI overlay: sample highlight drawing (simulated)
+        let overlayOn = true;
+        const toggleOverlay = document.getElementById("toggleOverlay");
+        toggleOverlay.addEventListener("click", () => {
+          overlayOn = !overlayOn;
+          toggleOverlay.textContent =
+            "AI Overlay: " + (overlayOn ? "ON" : "OFF");
+          drawOverlaySample();
+        });
+
+        function drawOverlaySample() {
+          const ctx = overlay.getContext("2d");
+          ctx.clearRect(0, 0, overlay.width, overlay.height);
+          if (!overlayOn || !currentImage) return;
+
+          // Draw subtle highlight region(s) scaled to canvas
+          ctx.save();
+          // semi-transparent darken
+          ctx.fillStyle = "rgba(2,6,12,0.35)";
+          ctx.fillRect(0, 0, overlay.width, overlay.height);
+
+          // highlight ellipse mock near lower-left region
+          const w = overlay.width,
+            h = overlay.height;
+          const cx = w * 0.62,
+            cy = h * 0.52;
+          const rx = Math.max(60, w * 0.14),
+            ry = Math.max(40, h * 0.12);
+
+          // glow
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx + 22, ry + 14, 0, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(8,167,255,0.05)";
+          ctx.fill();
+
+          // solid highlighted area
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          ctx.fillStyle = "rgba(255,80,80,0.14)";
+          ctx.fill();
+
+          // border
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "rgba(255,110,110,0.95)";
+          ctx.stroke();
+
+          // annotation
+          ctx.fillStyle = "rgba(8,167,255,0.95)";
+          ctx.font = "600 13px Inter, sans-serif";
+          ctx.fillText("Polyp (91%)", cx - rx, cy - ry - 10);
+          ctx.restore();
+        }
+
+        // simple zoom handlers (mock)
+        document.getElementById("zoomIn").addEventListener("click", () => {
+          scale = Math.min(2, scale + 0.25);
+          previewImage.style.transform = `scale(${scale})`;
+        });
+        document.getElementById("zoomOut").addEventListener("click", () => {
+          scale = Math.max(0.6, scale - 0.25);
+          previewImage.style.transform = `scale(${scale})`;
+        });
+        document.getElementById("resetView").addEventListener("click", () => {
+          scale = 1;
+          previewImage.style.transform = `scale(1)`;
+        });
+
+        // FAKE analysis runner (simulates model output)
+        const analyzeBtn = document.getElementById("analyzeBtn");
+        const barPolyp = document.getElementById("bar-polyp");
+        const barInflam = document.getElementById("bar-inflam");
+        const barUlcer = document.getElementById("bar-ulcer");
+        const barArtef = document.getElementById("bar-artef");
+        const valPolyp = document.getElementById("val-polyp");
+        const valInflam = document.getElementById("val-inflam");
+        const valUlcer = document.getElementById("val-ulcer");
+        const valArtef = document.getElementById("val-artef");
+        const aiSummary = document.getElementById("aiSummary");
+        const lastAnalysisEl = document.getElementById("lastAnalysis");
+
+        analyzeBtn.addEventListener("click", async () => {
+          if (!currentImage || !lastFile) {
+            alert("Please upload an image first.");
+            return;
+          }
+
+          analyzeBtn.textContent = "Analyzing…";
+          analyzeBtn.disabled = true;
+
+          try {
+            const fd = new FormData();
+            fd.append("file", lastFile);
+
+            const resp = await fetch("/predict", {
+              method: "POST",
+              body: fd,
+            });
+            const data = await resp.json();
+            if (data.error) {
+              aiSummary.innerHTML = `<strong>Error:</strong> ${data.error}`;
+            } else {
+              // Display summary
+              const pred = data.predicted_class || data.prediction || "-";
+              const conf = data.confidence !== undefined ? data.confidence : Math.round((data.confidence_score || 0) * 100);
+              aiSummary.innerHTML = `<strong>Findings:</strong> ${pred}. <br><strong>Confidence:</strong> ${conf}%`;
+              lastAnalysisEl.textContent = new Date().toLocaleString();
+
+              // If backend provided per-class probs, map them to bars if possible.
+              if (Array.isArray(data.probs) && data.probs.length > 0) {
+                const p = data.probs;
+                if (p.length >= 4) {
+                  setBar(barPolyp, valPolyp, Math.round(p[0]));
+                  setBar(barInflam, valInflam, Math.round(p[1]));
+                  setBar(barUlcer, valUlcer, Math.round(p[2]));
+                  setBar(barArtef, valArtef, Math.round(p[3]));
+                } else {
+                  setBar(barPolyp, valPolyp, Math.round(conf));
+                  const leftover = Math.max(0, 100 - Math.round(conf));
+                  const share = Math.round(leftover / 3);
+                  setBar(barInflam, valInflam, share);
+                  setBar(barUlcer, valUlcer, share);
+                  setBar(barArtef, valArtef, Math.max(0, leftover - share * 2));
+                }
+              } else {
+                setBar(barPolyp, valPolyp, Math.round(conf));
+                const leftover = Math.max(0, 100 - Math.round(conf));
+                const share = Math.round(leftover / 3);
+                setBar(barInflam, valInflam, share);
+                setBar(barUlcer, valUlcer, share);
+                setBar(barArtef, valArtef, Math.max(0, leftover - share * 2));
+              }
+
+              setTimeout(() => drawOverlaySample(), 200);
+            }
+          } catch (err) {
+            aiSummary.innerHTML = `<strong>Error:</strong> ${err.message}`;
+          } finally {
+            analyzeBtn.textContent = "Run Analysis";
+            analyzeBtn.disabled = false;
+          }
+        });
+
+        function setBar(elBar, elVal, percent) {
+          elBar.style.width = percent + "%";
+          elVal.textContent = percent + "%";
+        }
+
+        // Download report (small text file)
+        document
+          .getElementById("downloadReport")
+          .addEventListener("click", () => {
+            const report = [
+              "ColonAI Report — Demo",
+              "Date: " + new Date().toLocaleString(),
+              "Findings: Probable polyp detected (simulated).",
+              "",
+              "Probabilities:",
+              " - Polyp: " +
+                (document.getElementById("val-polyp").textContent || "—"),
+              " - Inflammation: " +
+                (document.getElementById("val-inflam").textContent || "—"),
+              "",
+              "Notes: This is a demo report. For clinical use, verify with histopathology and clinician review.",
+            ].join("\\n");
+            const blob = new Blob([report], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "colonai-report.txt";
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+          });
+
+        // Chat: send message -> simple rule-based AI reply
+        const sendBtn = document.getElementById("sendBtn");
+        const chatInput = document.getElementById("chatInput");
+        const messages = document.getElementById("messages");
+
+        function appendMessage(text, who = "user") {
+          const div = document.createElement("div");
+          div.className = "msg " + (who === "user" ? "user" : "ai");
+          div.innerHTML = text;
+          messages.appendChild(div);
+          messages.scrollTop = messages.scrollHeight;
+        }
+
+        sendBtn.addEventListener("click", () => {
+          const txt = chatInput.value.trim();
+          if (!txt) return;
+          appendMessage(txt, "user");
+          chatInput.value = "";
+          // show typing
+          const typingEl = document.createElement("div");
+          typingEl.className = "msg ai";
+          typingEl.innerHTML =
+            '<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+          messages.appendChild(typingEl);
+          messages.scrollTop = messages.scrollHeight;
+
+          setTimeout(() => {
+            typingEl.remove();
+            // basic canned responses
+            const lower = txt.toLowerCase();
+            let reply =
+              "I have received your query. Could you specify which region of interest you mean?";
+            if (lower.includes("polyp") || lower.includes("probab"))
+              reply =
+                "The model detected a polyp-like lesion in the sigmoid region with high confidence (≈91%). Recommend biopsy for confirmation.";
+            if (lower.includes("confidence"))
+              reply =
+                "Confidence for the primary finding is 91%. Secondary features (inflammation, ulceration) are low probability in this frame.";
+            if (lower.includes("explain") || lower.includes("why"))
+              reply =
+                "Explanation: the network weights attention to protruding mucosal shape, border sharpness, and contrast features. The overlay indicates the attention locus.";
+            appendMessage(reply, "ai");
+          }, 900 + Math.random() * 600);
+        });
+
+        chatInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendBtn.click();
+          }
+        });
+
+        // Small accessibility helpers
+        document.querySelectorAll(".nav-item").forEach((n) => {
+          n.tabIndex = 0;
+          n.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") n.click();
+          });
+        });
+
+        // Init: hide app until login
+        app.setAttribute("aria-hidden", "true");
+      })();
+    </script>
+  </body>
+</html>

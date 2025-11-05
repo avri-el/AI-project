@@ -1,0 +1,19 @@
+# load_model_summary.py
+from tensorflow.keras.models import load_model
+import os
+
+path = "colon_diseases.h5"
+if not os.path.exists(path):
+    raise SystemExit(f"File not found: {path}")
+
+print("Loading model (this may take a moment)...")
+model = load_model(path)
+print("Model loaded. Summary:\n")
+model.summary()
+
+# cetak input/output shape
+try:
+    print("\nInput shape:", model.input_shape)
+    print("Output shape:", model.output_shape)
+except Exception as e:
+    print("Tidak bisa mengambil shapes:", e)
