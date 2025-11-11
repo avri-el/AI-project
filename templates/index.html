@@ -943,12 +943,12 @@
                 border: 1px solid rgba(8, 167, 255, 0.05);
               "
             >
-              <div style="font-weight: 700; font-family: 'Poppins'">91%</div>
+              <div id="primaryBadgePercent" style="font-weight: 700; font-family: 'Poppins'">—</div>
             </div>
             <div>
-              <div style="font-weight: 700">Polyp Detected</div>
-              <div style="font-size: 13px; color: var(--muted)">
-                Region: sigmoid colon • High confidence
+              <div id="primaryLabel" style="font-weight: 700">No findings</div>
+              <div id="primaryRegion" style="font-size: 13px; color: var(--muted)">
+                Region: —
               </div>
             </div>
           </div>
@@ -967,28 +967,7 @@
               </div>
             </div>
 
-            <div class="prob-list" style="margin-top: 10px">
-              <div class="prob-item">
-                <div class="label">Polyp</div>
-                <div class="prob-bar"><span id="bar-polyp"></span></div>
-                <div class="confidence" id="val-polyp">0%</div>
-              </div>
-              <div class="prob-item">
-                <div class="label">Inflammation</div>
-                <div class="prob-bar"><span id="bar-inflam"></span></div>
-                <div class="confidence" id="val-inflam">0%</div>
-              </div>
-              <div class="prob-item">
-                <div class="label">Ulceration</div>
-                <div class="prob-bar"><span id="bar-ulcer"></span></div>
-                <div class="confidence" id="val-ulcer">0%</div>
-              </div>
-              <div class="prob-item">
-                <div class="label">Low-quality / Artefact</div>
-                <div class="prob-bar"><span id="bar-artef"></span></div>
-                <div class="confidence" id="val-artef">0%</div>
-              </div>
-            </div>
+            <div class="prob-list" style="margin-top: 10px"></div>
           </div>
 
           <div>
@@ -1242,10 +1221,14 @@
           ctx.strokeStyle = "rgba(255,110,110,0.95)";
           ctx.stroke();
 
-          // annotation
+          // annotation: use live prediction if available, otherwise fallback demo text
+          let annotText = "Polyp (91%)";
+          if (typeof lastAnalysisResult !== 'undefined' && lastAnalysisResult && lastAnalysisResult.predicted) {
+            annotText = `${lastAnalysisResult.predicted} (${lastAnalysisResult.confidence}%)`;
+          }
           ctx.fillStyle = "rgba(8,167,255,0.95)";
           ctx.font = "600 13px Inter, sans-serif";
-          ctx.fillText("Polyp (91%)", cx - rx, cy - ry - 10);
+          ctx.fillText(annotText, cx - rx, cy - ry - 10);
           ctx.restore();
         }
 
@@ -1263,18 +1246,31 @@
           previewImage.style.transform = `scale(1)`;
         });
 
-        // FAKE analysis runner (simulates model output)
+        // Analysis runner: sends image to backend, stores last result, and renders probabilities safely
         const analyzeBtn = document.getElementById("analyzeBtn");
-        const barPolyp = document.getElementById("bar-polyp");
-        const barInflam = document.getElementById("bar-inflam");
-        const barUlcer = document.getElementById("bar-ulcer");
-        const barArtef = document.getElementById("bar-artef");
-        const valPolyp = document.getElementById("val-polyp");
-        const valInflam = document.getElementById("val-inflam");
-        const valUlcer = document.getElementById("val-ulcer");
-        const valArtef = document.getElementById("val-artef");
         const aiSummary = document.getElementById("aiSummary");
         const lastAnalysisEl = document.getElementById("lastAnalysis");
+
+        // store last analysis result for report/download and for UI fallback
+        let lastAnalysisResult = null;
+
+        // helper: escape simple text for insertion into HTML
+        function escapeHtml(str) {
+          return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+
+        // helper: normalize probability to 0..100 percent
+        function toPercent(v) {
+          if (v === null || v === undefined || Number.isNaN(Number(v))) return 0;
+          const n = Number(v);
+          if (n <= 1.01 && n >= 0) return Math.round(n * 100);
+          return Math.round(n);
+        }
 
         analyzeBtn.addEventListener("click", async () => {
           if (!currentImage || !lastFile) {
@@ -1293,83 +1289,126 @@
               method: "POST",
               body: fd,
             });
+
+            if (!resp.ok) {
+              const txt = await resp.text();
+              aiSummary.textContent = `Error: ${txt || resp.statusText || resp.status}`;
+              return;
+            }
+
             const data = await resp.json();
             if (data.error) {
-              aiSummary.innerHTML = `<strong>Error:</strong> ${data.error}`;
-            } else {
-              // Display summary
-              const pred = data.predicted_class || data.prediction || "-";
-              const conf = data.confidence !== undefined ? data.confidence : Math.round((data.confidence_score || 0) * 100);
-              aiSummary.innerHTML = `<strong>Findings:</strong> ${pred}. <br><strong>Confidence:</strong> ${conf}%`;
-              lastAnalysisEl.textContent = new Date().toLocaleString();
-
-              // If backend provided per-class probs, map them to bars if possible.
-              if (Array.isArray(data.probs) && data.probs.length > 0) {
-                const p = data.probs;
-                if (p.length >= 4) {
-                  setBar(barPolyp, valPolyp, Math.round(p[0]));
-                  setBar(barInflam, valInflam, Math.round(p[1]));
-                  setBar(barUlcer, valUlcer, Math.round(p[2]));
-                  setBar(barArtef, valArtef, Math.round(p[3]));
-                } else {
-                  setBar(barPolyp, valPolyp, Math.round(conf));
-                  const leftover = Math.max(0, 100 - Math.round(conf));
-                  const share = Math.round(leftover / 3);
-                  setBar(barInflam, valInflam, share);
-                  setBar(barUlcer, valUlcer, share);
-                  setBar(barArtef, valArtef, Math.max(0, leftover - share * 2));
-                }
-              } else {
-                setBar(barPolyp, valPolyp, Math.round(conf));
-                const leftover = Math.max(0, 100 - Math.round(conf));
-                const share = Math.round(leftover / 3);
-                setBar(barInflam, valInflam, share);
-                setBar(barUlcer, valUlcer, share);
-                setBar(barArtef, valArtef, Math.max(0, leftover - share * 2));
-              }
-
-              setTimeout(() => drawOverlaySample(), 200);
+              aiSummary.textContent = `Error: ${data.error}`;
+              return;
             }
+
+            // Normalize fields
+            const labels = Array.isArray(data.labels) ? data.labels.slice() : [];
+            const probsRaw = Array.isArray(data.probs) ? data.probs.slice() : [];
+            const probs = probsRaw.map((p) => toPercent(p));
+            const pred = data.predicted_class || data.prediction || "-";
+            const conf = data.confidence !== undefined ? toPercent(data.confidence) : (data.confidence_score !== undefined ? toPercent(data.confidence_score) : 0);
+
+            // store last result
+            lastAnalysisResult = { labels, probs, predicted: pred, confidence: conf };
+
+            // render summary (use escaped text for safety)
+            aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(pred)}</span>.<br><strong>Confidence:</strong> ${conf}%`;
+            lastAnalysisEl.textContent = new Date().toLocaleString();
+
+            // Update primary badge and label to reflect live result
+            const primaryBadge = document.getElementById('primaryBadgePercent');
+            const primaryLabel = document.getElementById('primaryLabel');
+            const primaryRegion = document.getElementById('primaryRegion');
+            if (primaryBadge) primaryBadge.textContent = conf + '%';
+            if (primaryLabel) primaryLabel.textContent = pred;
+            // Backend does not currently send region info; leave as placeholder
+            if (primaryRegion) primaryRegion.textContent = 'Region: —';
+
+            // render per-class probabilities
+            const probContainer = document.querySelector('.prob-list');
+            probContainer.innerHTML = ''; // clear previous
+
+            // if labels empty, fallback to generic labels
+            const useLabels = labels.length ? labels : probs.map((_, i) => `Class ${i}`);
+
+            for (let i = 0; i < useLabels.length; i++) {
+              const label = useLabels[i];
+              const pct = probs[i] !== undefined ? probs[i] : (label === pred ? conf : 0);
+
+              const item = document.createElement('div');
+              item.className = 'prob-item';
+
+              const labelEl = document.createElement('div');
+              labelEl.className = 'label';
+              labelEl.textContent = label;
+
+              const barWrap = document.createElement('div');
+              barWrap.className = 'prob-bar';
+              const span = document.createElement('span');
+              span.style.width = Math.max(0, Math.min(100, pct)) + '%';
+              barWrap.appendChild(span);
+
+              const confEl = document.createElement('div');
+              confEl.className = 'confidence';
+              confEl.textContent = pct + '%';
+
+              item.appendChild(labelEl);
+              item.appendChild(barWrap);
+              item.appendChild(confEl);
+
+              probContainer.appendChild(item);
+            }
+
+            setTimeout(() => drawOverlaySample(), 200);
           } catch (err) {
-            aiSummary.innerHTML = `<strong>Error:</strong> ${err.message}`;
+            aiSummary.textContent = `Error: ${err.message}`;
           } finally {
             analyzeBtn.textContent = "Run Analysis";
             analyzeBtn.disabled = false;
           }
         });
 
-        function setBar(elBar, elVal, percent) {
-          elBar.style.width = percent + "%";
-          elVal.textContent = percent + "%";
-        }
+        // helper setBar removed — using dynamic render with span width and .confidence text
 
-        // Download report (small text file)
-        document
-          .getElementById("downloadReport")
-          .addEventListener("click", () => {
-            const report = [
-              "ColonAI Report — Demo",
-              "Date: " + new Date().toLocaleString(),
-              "Findings: Probable polyp detected (simulated).",
-              "",
-              "Probabilities:",
-              " - Polyp: " +
-                (document.getElementById("val-polyp").textContent || "—"),
-              " - Inflammation: " +
-                (document.getElementById("val-inflam").textContent || "—"),
-              "",
-              "Notes: This is a demo report. For clinical use, verify with histopathology and clinician review.",
-            ].join("\\n");
-            const blob = new Blob([report], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "colonai-report.txt";
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-          });
+        // Download report (small text file) — reads from lastAnalysisResult when available
+        document.getElementById("downloadReport").addEventListener("click", () => {
+          const lines = ["ColonAI Report — Demo", "Date: " + new Date().toLocaleString(), ""];
+
+          if (lastAnalysisResult && lastAnalysisResult.labels && lastAnalysisResult.labels.length) {
+            lines.push(`Findings: ${lastAnalysisResult.predicted} (confidence: ${lastAnalysisResult.confidence}%)`, "", "Probabilities:");
+            for (let i = 0; i < lastAnalysisResult.labels.length; i++) {
+              const lab = lastAnalysisResult.labels[i];
+              const pct = lastAnalysisResult.probs[i] !== undefined ? lastAnalysisResult.probs[i] : "—";
+              lines.push(` - ${lab}: ${pct}%`);
+            }
+          } else {
+            // fallback: read from rendered DOM
+            const probItems = document.querySelectorAll('.prob-list .prob-item');
+            if (probItems.length) {
+              lines.push("Findings: (see probabilities below)", "", "Probabilities:");
+              probItems.forEach((it) => {
+                const lab = it.querySelector('.label') ? it.querySelector('.label').textContent : 'Class';
+                const pct = it.querySelector('.confidence') ? it.querySelector('.confidence').textContent : '—';
+                lines.push(` - ${lab}: ${pct}`);
+              });
+            } else {
+              lines.push("No analysis available.");
+            }
+          }
+
+          lines.push("", "Notes: This is a demo report. For clinical use, verify with histopathology and clinician review.");
+          const report = lines.join("\n");
+          const blob = new Blob([report], { type: "text/plain" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "colonai-report.txt";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        });
 
         // Chat: send message -> simple rule-based AI reply
         const sendBtn = document.getElementById("sendBtn");

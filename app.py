@@ -16,11 +16,42 @@ model = load_model(MODEL_PATH)
 
 # --- Daftar label kelas (ubah sesuai model kamu) ---
 class_labels = [
-    "Colon Adenocarcinoma",
-    "Colon Benign Tissue",
-    "Colon Malignant",
-    "Normal Colon Tissue"
+    "Normal Colon",
+    "Colon Ulcerative Colitis",
+    "Colon Polyps",
+    "Colon Esophagitis"
 ]
+
+# --- Validate model output size vs provided labels and normalize labels ---
+try:
+    model_output_size = int(model.output_shape[-1])
+except Exception:
+    model_output_size = None
+
+if model_output_size is not None:
+    if model_output_size != len(class_labels):
+        logging.warning(
+            f"Model output size ({model_output_size}) does not match number of class_labels ({len(class_labels)}).\n"
+            "Adjusting `class_labels` to match model output size."
+        )
+        # Keep as many provided labels as possible, pad or truncate to match
+        if model_output_size > len(class_labels):
+            # extend with placeholder names
+            class_labels = class_labels + [f"Class {i}" for i in range(len(class_labels), model_output_size)]
+        else:
+            # truncate
+            class_labels = class_labels[:model_output_size]
+
+# Ensure labels are unique (append suffix if necessary)
+seen = {}
+for i, lab in enumerate(class_labels):
+    if lab in seen:
+        # append a numeric suffix to disambiguate
+        new_lab = f"{lab} ({seen[lab]+1})"
+        seen[lab] += 1
+        class_labels[i] = new_lab
+    else:
+        seen[lab] = 1
 
 # --- Fungsi bantu untuk prediksi gambar ---
 def predict_image(img_path):
@@ -33,6 +64,19 @@ def predict_image(img_path):
     # model.predict returns batch; take first sample
     preds = model.predict(x)
     probs = preds[0].tolist()
+
+    # safety: ensure probs is a flat list of floats
+    probs = [float(p) for p in probs]
+
+    # If model output size known, pad/truncate probs to match labels
+    if 'model_output_size' in globals() and model_output_size is not None:
+        if len(probs) != model_output_size:
+            logging.warning(f"Predict returned {len(probs)} scores but expected {model_output_size}; padding/truncating to match.")
+            if len(probs) < model_output_size:
+                probs = probs + [0.0] * (model_output_size - len(probs))
+            else:
+                probs = probs[:model_output_size]
+
     predicted_class_idx = int(np.argmax(probs))
     predicted_class = (
         class_labels[predicted_class_idx]
@@ -42,7 +86,7 @@ def predict_image(img_path):
     # confidence as raw score between 0-1
     confidence = float(probs[predicted_class_idx])
 
-    return predicted_class, confidence, probs
+    return predicted_class_idx, predicted_class, confidence, probs
 
 # --- Route utama (tampilkan HTML UI) ---
 @app.route('/')
@@ -77,8 +121,8 @@ def predict():
     logging.info(f"Saved uploaded file to {file_path}")
 
     try:
-        # Prediksi
-        predicted_class, confidence, probs = predict_image(file_path)
+    # Prediksi
+        predicted_idx, predicted_class, confidence, probs = predict_image(file_path)
 
         # Hapus file sementara
         try:
@@ -86,14 +130,28 @@ def predict():
         except Exception:
             logging.warning(f"Could not remove temporary file: {file_path}")
 
+        # Validate probs vs labels length before returning
+        if len(probs) != len(class_labels):
+            logging.warning(f"Length mismatch: probs({len(probs)}) vs labels({len(class_labels)}). Truncating/padding response to match labels.")
+            if len(probs) < len(class_labels):
+                probs = probs + [0.0] * (len(class_labels) - len(probs))
+            else:
+                probs = probs[: len(class_labels)]
+
+        # Convert probs to 0..100 scale for frontend display
+        probs_percent = [round(float(p) * 100, 2) for p in probs]
+
+        # Log the result for easier debugging
+        logging.info(f"Prediction idx={predicted_idx} class={predicted_class} confidence={confidence:.4f} probs={probs_percent}")
+
         # Kirim hasil ke frontend
-        # Return both a human-readable percent and raw score for compatibility
         return jsonify({
+            'predicted_index': int(predicted_idx),
             'predicted_class': predicted_class,
             'prediction': predicted_class,  # backward compatibility
             'confidence': round(confidence * 100, 2),
             'confidence_score': confidence,
-            'probs': [round(float(p) * 100, 2) for p in probs],
+            'probs': probs_percent,
             'labels': class_labels,
         })
 
