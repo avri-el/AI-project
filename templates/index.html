@@ -1057,422 +1057,330 @@
       </section>
     </div>
 
-    <script>
-      // Basic interactivity: login simulation, upload preview, overlay highlight, fake analysis, chat mock
-      (function () {
-        const loginModal = document.getElementById("loginModal");
-        const app = document.getElementById("app");
-        const loginBtn = document.getElementById("loginBtn");
-        const ghostSign = document.getElementById("ghostSign");
+   <script>
+(function () {
 
-        function showApp() {
-          loginModal.style.display = "none";
-          app.setAttribute("aria-hidden", "false");
-          document.getElementById("loginModal").setAttribute("aria-hidden", "true");
-        }
+  // --- LOGIN ---
+  const loginModal = document.getElementById("loginModal");
+  const app = document.getElementById("app");
+  const loginBtn = document.getElementById("loginBtn");
+  const ghostSign = document.getElementById("ghostSign");
 
-        // Auto-show app in local/dev environments so testers don't get stuck on the modal.
-        try {
-          const host = window.location.hostname;
-          if (host === "localhost" || host === "127.0.0.1") {
-            // small delay so the UI paints correctly before hiding modal
-            setTimeout(showApp, 120);
-          }
-        } catch (err) {
-          // ignore; default behavior remains manual sign-in
-        }
-        loginBtn.addEventListener("click", showApp);
-        ghostSign.addEventListener("click", showApp);
+  function showApp() {
+    loginModal.style.display = "none";
+    app.setAttribute("aria-hidden", "false");
+    document.getElementById("loginModal").setAttribute("aria-hidden", "true");
+  }
 
-        // NAV
-        const navItems = document.querySelectorAll(".nav-item");
-        navItems.forEach((it) =>
-          it.addEventListener("click", (e) => {
-            navItems.forEach((n) => n.classList.remove("active"));
-            it.classList.add("active");
-            // Basic section switching: focus Upload, Chat, History
-            const sec = it.dataset.section;
-            if (sec === "upload" || sec === "home") {
-              document
-                .getElementById("homeView")
-                .scrollIntoView({ behavior: "smooth" });
-            } else if (sec === "chat") {
-              document
-                .getElementById("chatSection")
-                .scrollIntoView({ behavior: "smooth" });
-            } else {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }
-          })
-        );
+  // Auto-show app in local/dev environments so testers don't get stuck on the modal.
+  try {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      // small delay so the UI paints correctly before hiding modal
+      setTimeout(showApp, 120);
+    }
+  } catch (err) {
+    // ignore; default behavior remains manual sign-in
+  }
+  loginBtn.addEventListener("click", showApp);
+  ghostSign.addEventListener("click", showApp);
 
-        // Drag & drop + preview
-        const dropzone = document.getElementById("dropzone");
-        const fileInput = document.getElementById("fileInput");
-        const previewWrap = document.getElementById("previewWrap");
-        const previewImage = document.getElementById("previewImage");
-        const overlay = document.getElementById("overlay");
-        const viewer = document.getElementById("viewer");
-        const lastAnalysis = document.getElementById("lastAnalysis");
-        const imgDims = document.getElementById("imgDims");
-        let currentImage = null;
-        let lastFile = null; // store the uploaded File object for sending to server
-        let scale = 1;
+  // --- NAV ---
+  const navItems = document.querySelectorAll(".nav-item");
+  navItems.forEach((it) =>
+    it.addEventListener("click", (e) => {
+      navItems.forEach((n) => n.classList.remove("active"));
+      it.classList.add("active");
+      const sec = it.dataset.section;
+      if (sec === "upload" || sec === "home") {
+        document.getElementById("homeView").scrollIntoView({ behavior: "smooth" });
+      } else if (sec === "chat") {
+        document.getElementById("chatSection").scrollIntoView({ behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    })
+  );
 
-        function prevent(e) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
+  // --- FILE UPLOAD / PREVIEW / OVERLAY / ANALYSIS ---
+  const dropzone = document.getElementById("dropzone");
+  const fileInput = document.getElementById("fileInput");
+  const previewWrap = document.getElementById("previewWrap");
+  const previewImage = document.getElementById("previewImage");
+  const overlay = document.getElementById("overlay");
+  const viewer = document.getElementById("viewer");
+  const lastAnalysis = document.getElementById("lastAnalysis");
+  const imgDims = document.getElementById("imgDims");
 
-        ["dragenter", "dragover"].forEach((ev) =>
-          dropzone.addEventListener(ev, (e) => {
-            prevent(e);
-            dropzone.classList.add("hover");
-          })
-        );
-        ["dragleave", "drop"].forEach((ev) =>
-          dropzone.addEventListener(ev, (e) => {
-            prevent(e);
-            dropzone.classList.remove("hover");
-          })
-        );
-        dropzone.addEventListener("drop", (e) => {
-          const f = e.dataTransfer.files && e.dataTransfer.files[0];
-          if (f) loadFile(f);
-        });
-        fileInput.addEventListener("change", (e) => {
-          const f = e.target.files[0];
-          if (f) loadFile(f);
-        });
+  let currentImage = null;
+  let lastFile = null;
+  let scale = 1;
 
-        function loadFile(f) {
-          const reader = new FileReader();
-          reader.onload = function (ev) {
-            previewImage.src = ev.target.result;
-            previewImage.onload = function () {
-              previewWrap.style.display = "flex";
-              viewer.classList.add("show");
-              currentImage = previewImage;
-              lastFile = f;
-              imgDims.textContent =
-                previewImage.naturalWidth + " x " + previewImage.naturalHeight;
-              lastAnalysis.textContent = "Not analyzed";
-              drawOverlaySample(); // show placeholder overlay
-              // resize overlay canvas to viewer
-              resizeCanvas();
-            };
-          };
-          reader.readAsDataURL(f);
-        }
+  // drag++
+  function prevent(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  ["dragenter", "dragover"].forEach(ev =>
+    dropzone.addEventListener(ev, (e) => {
+      prevent(e);
+      dropzone.classList.add("hover");
+    })
+  );
+  ["dragleave", "drop"].forEach(ev =>
+    dropzone.addEventListener(ev, (e) => {
+      prevent(e);
+      dropzone.classList.remove("hover");
+    })
+  );
 
-        window.addEventListener("resize", resizeCanvas);
-        function resizeCanvas() {
-          const rect = viewer.getBoundingClientRect();
-          overlay.width = rect.width;
-          overlay.height = rect.height;
-          drawOverlaySample();
-        }
+  dropzone.addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  fileInput.addEventListener("change", (e) => {
+    const f = e.target.files[0];
+    if (f) loadFile(f);
+  });
 
-        // AI overlay: sample highlight drawing (simulated)
-        let overlayOn = true;
-        const toggleOverlay = document.getElementById("toggleOverlay");
-        toggleOverlay.addEventListener("click", () => {
-          overlayOn = !overlayOn;
-          toggleOverlay.textContent =
-            "AI Overlay: " + (overlayOn ? "ON" : "OFF");
-          drawOverlaySample();
-        });
+  function loadFile(f) {
+    const reader = new FileReader();
+    reader.onload = function (ev) {
+      previewImage.src = ev.target.result;
+      previewImage.onload = function () {
+        previewWrap.style.display = "flex";
+        viewer.classList.add("show");
+        currentImage = previewImage;
+        lastFile = f;
+        imgDims.textContent =
+          previewImage.naturalWidth + " x " + previewImage.naturalHeight;
+        lastAnalysis.textContent = "Not analyzed";
+        drawOverlaySample();
+        resizeCanvas();
+      };
+    };
+    reader.readAsDataURL(f);
+  }
 
-        function drawOverlaySample() {
-          const ctx = overlay.getContext("2d");
-          ctx.clearRect(0, 0, overlay.width, overlay.height);
-          if (!overlayOn || !currentImage) return;
+  window.addEventListener("resize", resizeCanvas);
+  function resizeCanvas() {
+    const rect = viewer.getBoundingClientRect();
+    overlay.width = rect.width;
+    overlay.height = rect.height;
+    drawOverlaySample();
+  }
 
-          // Draw subtle highlight region(s) scaled to canvas
-          ctx.save();
-          // semi-transparent darken
-          ctx.fillStyle = "rgba(2,6,12,0.35)";
-          ctx.fillRect(0, 0, overlay.width, overlay.height);
+  // --- OVERLAY ---
+  let overlayOn = true;
+  const toggleOverlay = document.getElementById("toggleOverlay");
 
-          // highlight ellipse mock near lower-left region
-          const w = overlay.width,
-            h = overlay.height;
-          const cx = w * 0.62,
-            cy = h * 0.52;
-          const rx = Math.max(60, w * 0.14),
-            ry = Math.max(40, h * 0.12);
+  toggleOverlay.addEventListener("click", () => {
+    overlayOn = !overlayOn;
+    toggleOverlay.textContent = "AI Overlay: " + (overlayOn ? "ON" : "OFF");
+    drawOverlaySample();
+  });
 
-          // glow
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, rx + 22, ry + 14, 0, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(8,167,255,0.05)";
-          ctx.fill();
+  function drawOverlaySample() {
+    const ctx = overlay.getContext("2d");
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    if (!overlayOn || !currentImage) return;
 
-          // solid highlighted area
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-          ctx.fillStyle = "rgba(255,80,80,0.14)";
-          ctx.fill();
+    ctx.save();
+    ctx.fillStyle = "rgba(2,6,12,0.35)";
+    ctx.fillRect(0, 0, overlay.width, overlay.height);
 
-          // border
-          ctx.beginPath();
-          ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-          ctx.lineWidth = 2;
-          ctx.strokeStyle = "rgba(255,110,110,0.95)";
-          ctx.stroke();
+    const w = overlay.width,
+      h = overlay.height;
+    const cx = w * 0.62,
+      cy = h * 0.52;
+    const rx = Math.max(60, w * 0.14),
+      ry = Math.max(40, h * 0.12);
 
-          // annotation: use live prediction if available, otherwise fallback demo text
-          let annotText = "Polyp (91%)";
-          if (typeof lastAnalysisResult !== 'undefined' && lastAnalysisResult && lastAnalysisResult.predicted) {
-            annotText = `${lastAnalysisResult.predicted} (${lastAnalysisResult.confidence}%)`;
-          }
-          ctx.fillStyle = "rgba(8,167,255,0.95)";
-          ctx.font = "600 13px Inter, sans-serif";
-          ctx.fillText(annotText, cx - rx, cy - ry - 10);
-          ctx.restore();
-        }
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx + 22, ry + 14, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(8,167,255,0.05)";
+    ctx.fill();
 
-        // simple zoom handlers (mock)
-        document.getElementById("zoomIn").addEventListener("click", () => {
-          scale = Math.min(2, scale + 0.25);
-          previewImage.style.transform = `scale(${scale})`;
-        });
-        document.getElementById("zoomOut").addEventListener("click", () => {
-          scale = Math.max(0.6, scale - 0.25);
-          previewImage.style.transform = `scale(${scale})`;
-        });
-        document.getElementById("resetView").addEventListener("click", () => {
-          scale = 1;
-          previewImage.style.transform = `scale(1)`;
-        });
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,80,80,0.14)";
+    ctx.fill();
 
-        // Analysis runner: sends image to backend, stores last result, and renders probabilities safely
-        const analyzeBtn = document.getElementById("analyzeBtn");
-        const aiSummary = document.getElementById("aiSummary");
-        const lastAnalysisEl = document.getElementById("lastAnalysis");
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,110,110,0.95)";
+    ctx.stroke();
 
-        // store last analysis result for report/download and for UI fallback
-        let lastAnalysisResult = null;
+    ctx.fillStyle = "rgba(8,167,255,0.95)";
+    ctx.font = "600 13px Inter, sans-serif";
+    ctx.fillText("Suspicious region", cx - rx, cy - ry - 10);
+    ctx.restore();
+  }
 
-        // helper: escape simple text for insertion into HTML
-        function escapeHtml(str) {
-          return String(str)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-        }
+  // --- ZOOM ---
+  document.getElementById("zoomIn").addEventListener("click", () => {
+    scale = Math.min(2, scale + 0.25);
+    previewImage.style.transform = `scale(${scale})`;
+  });
+  document.getElementById("zoomOut").addEventListener("click", () => {
+    scale = Math.max(0.6, scale - 0.25);
+    previewImage.style.transform = `scale(${scale})`;
+  });
+  document.getElementById("resetView").addEventListener("click", () => {
+    scale = 1;
+    previewImage.style.transform = `scale(1)`;
+  });
 
-        // helper: normalize probability to 0..100 percent
-        function toPercent(v) {
-          if (v === null || v === undefined || Number.isNaN(Number(v))) return 0;
-          const n = Number(v);
-          if (n <= 1.01 && n >= 0) return Math.round(n * 100);
-          return Math.round(n);
-        }
+  // --- ANALYSIS ---
+  const analyzeBtn = document.getElementById("analyzeBtn");
+  const aiSummary = document.getElementById("aiSummary");
+  const lastAnalysisEl = document.getElementById("lastAnalysis");
 
-        analyzeBtn.addEventListener("click", async () => {
-          if (!currentImage || !lastFile) {
-            alert("Please upload an image first.");
-            return;
-          }
+  let lastAnalysisResult = null;
 
-          analyzeBtn.textContent = "Analyzing…";
-          analyzeBtn.disabled = true;
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
 
-          try {
-            const fd = new FormData();
-            fd.append("file", lastFile);
+  function toPercent(v) {
+    if (v === null || v === undefined || Number.isNaN(Number(v))) return 0;
+    const n = Number(v);
+    if (n <= 1.01 && n >= 0) return Math.round(n * 100);
+    return Math.round(n);
+  }
 
-            const resp = await fetch("/predict", {
-              method: "POST",
-              body: fd,
-            });
+  analyzeBtn.addEventListener("click", async () => {
+    if (!currentImage || !lastFile) {
+      alert("Please upload an image first.");
+      return;
+    }
 
-            if (!resp.ok) {
-              const txt = await resp.text();
-              aiSummary.textContent = `Error: ${txt || resp.statusText || resp.status}`;
-              return;
-            }
+    analyzeBtn.textContent = "Analyzing…";
+    analyzeBtn.disabled = true;
 
-            const data = await resp.json();
-            if (data.error) {
-              aiSummary.textContent = `Error: ${data.error}`;
-              return;
-            }
+    try {
+      const fd = new FormData();
+      fd.append("file", lastFile);
 
-            // Normalize fields
-            const labels = Array.isArray(data.labels) ? data.labels.slice() : [];
-            const probsRaw = Array.isArray(data.probs) ? data.probs.slice() : [];
-            const probs = probsRaw.map((p) => toPercent(p));
-            const pred = data.predicted_class || data.prediction || "-";
-            const conf = data.confidence !== undefined ? toPercent(data.confidence) : (data.confidence_score !== undefined ? toPercent(data.confidence_score) : 0);
+      const resp = await fetch("/predict", {
+        method: "POST",
+        body: fd,
+      });
 
-            // store last result
-            lastAnalysisResult = { labels, probs, predicted: pred, confidence: conf };
+      const data = await resp.json();
+      if (data.error) {
+        aiSummary.textContent = `Error: ${data.error}`;
+        return;
+      }
 
-            // render summary (use escaped text for safety)
-            aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(pred)}</span>.<br><strong>Confidence:</strong> ${conf}%`;
-            lastAnalysisEl.textContent = new Date().toLocaleString();
+      const labels = data.labels || [];
+      const probs = (data.probs || []).map((p) => toPercent(p));
+      const pred = data.predicted_class;
+      const conf = toPercent(data.confidence);
 
-            // Update primary badge and label to reflect live result
-            const primaryBadge = document.getElementById('primaryBadgePercent');
-            const primaryLabel = document.getElementById('primaryLabel');
-            const primaryRegion = document.getElementById('primaryRegion');
-            if (primaryBadge) primaryBadge.textContent = conf + '%';
-            if (primaryLabel) primaryLabel.textContent = pred;
-            // Backend does not currently send region info; leave as placeholder
-            if (primaryRegion) primaryRegion.textContent = 'Region: —';
+      lastAnalysisResult = {
+        labels,
+        probs,
+        predicted: pred,
+        confidence: conf,
+      };
 
-            // render per-class probabilities
-            const probContainer = document.querySelector('.prob-list');
-            probContainer.innerHTML = ''; // clear previous
+      aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(
+        pred
+      )}</span>.<br><strong>Confidence:</strong> ${conf}%`;
+      lastAnalysisEl.textContent = new Date().toLocaleString();
 
-            // if labels empty, fallback to generic labels
-            const useLabels = labels.length ? labels : probs.map((_, i) => `Class ${i}`);
+      const probContainer = document.querySelector(".prob-list");
+      probContainer.innerHTML = "";
 
-            for (let i = 0; i < useLabels.length; i++) {
-              const label = useLabels[i];
-              const pct = probs[i] !== undefined ? probs[i] : (label === pred ? conf : 0);
+      labels.forEach((label, i) => {
+        const pct = probs[i];
 
-              const item = document.createElement('div');
-              item.className = 'prob-item';
+        const item = document.createElement("div");
+        item.className = "prob-item";
 
-              const labelEl = document.createElement('div');
-              labelEl.className = 'label';
-              labelEl.textContent = label;
+        item.innerHTML = `
+          <div class="label">${label}</div>
+          <div class="prob-bar"><span style="width:${pct}%"></span></div>
+          <div class="confidence">${pct}%</div>
+        `;
 
-              const barWrap = document.createElement('div');
-              barWrap.className = 'prob-bar';
-              const span = document.createElement('span');
-              span.style.width = Math.max(0, Math.min(100, pct)) + '%';
-              barWrap.appendChild(span);
+        probContainer.appendChild(item);
+      });
 
-              const confEl = document.createElement('div');
-              confEl.className = 'confidence';
-              confEl.textContent = pct + '%';
+      setTimeout(drawOverlaySample, 200);
+    } catch (err) {
+      aiSummary.textContent = "Error: " + err.message;
+    } finally {
+      analyzeBtn.textContent = "Run Analysis";
+      analyzeBtn.disabled = false;
+    }
+  });
 
-              item.appendChild(labelEl);
-              item.appendChild(barWrap);
-              item.appendChild(confEl);
+  // --- CHAT WITH GEMINI ---
+  const sendBtn = document.getElementById("sendBtn");
+  const chatInput = document.getElementById("chatInput");
+  const messages = document.getElementById("messages");
 
-              probContainer.appendChild(item);
-            }
+  function appendMessage(text, who = "user") {
+    const div = document.createElement("div");
+    div.className = "msg " + (who === "user" ? "user" : "ai");
+    div.innerHTML = text.replace(/\n/g, "<br>");
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
 
-            setTimeout(() => drawOverlaySample(), 200);
-          } catch (err) {
-            aiSummary.textContent = `Error: ${err.message}`;
-          } finally {
-            analyzeBtn.textContent = "Run Analysis";
-            analyzeBtn.disabled = false;
-          }
-        });
+  sendBtn.addEventListener("click", async () => {
+    const txt = chatInput.value.trim();
+    if (!txt) return;
 
-        // helper setBar removed — using dynamic render with span width and .confidence text
+    appendMessage(txt, "user");
+    chatInput.value = "";
 
-        // Download report (small text file) — reads from lastAnalysisResult when available
-        document.getElementById("downloadReport").addEventListener("click", () => {
-          const lines = ["ColonAI Report — Demo", "Date: " + new Date().toLocaleString(), ""];
+    const typingEl = document.createElement("div");
+    typingEl.className = "msg ai";
+    typingEl.innerHTML =
+      '<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+    messages.appendChild(typingEl);
+    messages.scrollTop = messages.scrollHeight;
 
-          if (lastAnalysisResult && lastAnalysisResult.labels && lastAnalysisResult.labels.length) {
-            lines.push(`Findings: ${lastAnalysisResult.predicted} (confidence: ${lastAnalysisResult.confidence}%)`, "", "Probabilities:");
-            for (let i = 0; i < lastAnalysisResult.labels.length; i++) {
-              const lab = lastAnalysisResult.labels[i];
-              const pct = lastAnalysisResult.probs[i] !== undefined ? lastAnalysisResult.probs[i] : "—";
-              lines.push(` - ${lab}: ${pct}%`);
-            }
-          } else {
-            // fallback: read from rendered DOM
-            const probItems = document.querySelectorAll('.prob-list .prob-item');
-            if (probItems.length) {
-              lines.push("Findings: (see probabilities below)", "", "Probabilities:");
-              probItems.forEach((it) => {
-                const lab = it.querySelector('.label') ? it.querySelector('.label').textContent : 'Class';
-                const pct = it.querySelector('.confidence') ? it.querySelector('.confidence').textContent : '—';
-                lines.push(` - ${lab}: ${pct}`);
-              });
-            } else {
-              lines.push("No analysis available.");
-            }
-          }
+    try {
+      const resp = await fetch("/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: txt,
+          prediction: lastAnalysisResult,
+        }),
+      });
 
-          lines.push("", "Notes: This is a demo report. For clinical use, verify with histopathology and clinician review.");
-          const report = lines.join("\n");
-          const blob = new Blob([report], { type: "text/plain" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "colonai-report.txt";
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        });
+      const data = await resp.json();
+      typingEl.remove();
 
-        // Chat: send message -> simple rule-based AI reply
-        const sendBtn = document.getElementById("sendBtn");
-        const chatInput = document.getElementById("chatInput");
-        const messages = document.getElementById("messages");
+      if (data.error) appendMessage("AI Error: " + data.error, "ai");
+      else appendMessage(data.reply, "ai");
+    } catch (err) {
+      typingEl.remove();
+      appendMessage("Connection Error: " + err.message, "ai");
+    }
+  });
 
-        function appendMessage(text, who = "user") {
-          const div = document.createElement("div");
-          div.className = "msg " + (who === "user" ? "user" : "ai");
-          div.innerHTML = text;
-          messages.appendChild(div);
-          messages.scrollTop = messages.scrollHeight;
-        }
+  chatInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
 
-        sendBtn.addEventListener("click", () => {
-          const txt = chatInput.value.trim();
-          if (!txt) return;
-          appendMessage(txt, "user");
-          chatInput.value = "";
-          // show typing
-          const typingEl = document.createElement("div");
-          typingEl.className = "msg ai";
-          typingEl.innerHTML =
-            '<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
-          messages.appendChild(typingEl);
-          messages.scrollTop = messages.scrollHeight;
+})();
+</script>
 
-          setTimeout(() => {
-            typingEl.remove();
-            // basic canned responses
-            const lower = txt.toLowerCase();
-            let reply =
-              "I have received your query. Could you specify which region of interest you mean?";
-            if (lower.includes("polyp") || lower.includes("probab"))
-              reply =
-                "The model detected a polyp-like lesion in the sigmoid region with high confidence (≈91%). Recommend biopsy for confirmation.";
-            if (lower.includes("confidence"))
-              reply =
-                "Confidence for the primary finding is 91%. Secondary features (inflammation, ulceration) are low probability in this frame.";
-            if (lower.includes("explain") || lower.includes("why"))
-              reply =
-                "Explanation: the network weights attention to protruding mucosal shape, border sharpness, and contrast features. The overlay indicates the attention locus.";
-            appendMessage(reply, "ai");
-          }, 900 + Math.random() * 600);
-        });
 
-        chatInput.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            sendBtn.click();
-          }
-        });
-
-        // Small accessibility helpers
-        document.querySelectorAll(".nav-item").forEach((n) => {
-          n.tabIndex = 0;
-          n.addEventListener("keypress", (e) => {
-            if (e.key === "Enter") n.click();
-          });
-        });
-
-        // Init: hide app until login
-        app.setAttribute("aria-hidden", "true");
-      })();
-    </script>
   </body>
 </html>
