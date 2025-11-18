@@ -1,86 +1,84 @@
 # app.py
-from flask import Flask, render_template, request, jsonify
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing import image
-import numpy as np
 import os
-from werkzeug.utils import secure_filename
+import io
 import logging
 import traceback
-import io
 import base64
 from datetime import datetime
+
+from flask import Flask, render_template, request, jsonify, send_file
+from werkzeug.utils import secure_filename
+
+import numpy as np
 from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
-from reportlab.lib.units import mm
-from flask import send_file
 
-# Try to support both import styles for different SDK versions/environments
+# Keras / TF model
+from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing import image
+
+# GenAI SDK try imports (support multiple install patterns)
 try:
-    from google import genai as genai_sdk  # preferred in some installs
+    from google import genai as genai_sdk
 except Exception:
     try:
-        import google.generativeai as genai_sdk  # older alias
+        import google.generativeai as genai_sdk
     except Exception:
         genai_sdk = None
 
-# dotenv to load .env in development (optional, best practice)
+# Optional dotenv
 try:
     from dotenv import load_dotenv
-
     load_dotenv()
 except Exception:
-    # dotenv not installed — it's optional if you set env vars directly
     pass
 
-# ===========================
-# CONFIG / CLIENT INIT
-# ===========================
+# =========== Logging ===========
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("colonai")
+
+# =========== Gemini client init ===========
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 client = None
 
+
 def init_gemini_client(api_key: str):
-    global client, genai_sdk
+    global genai_sdk
     if not genai_sdk:
-        raise RuntimeError("GenAI SDK not available. Install google-generativeai.")
+        raise RuntimeError("GenAI SDK not available. Install google-generativeai or google-genai.")
     try:
-        # different SDK surfaces: some use genai_sdk.Client(...)
-        # others expect genai_sdk.configure(api_key=...)
         if hasattr(genai_sdk, "Client"):
-            c = genai_sdk.Client(api_key=api_key)
+            return genai_sdk.Client(api_key=api_key)
         else:
-            # older style
             genai_sdk.configure(api_key=api_key)
-            c = genai_sdk
-        return c
-    except Exception as e:
-        logging.exception("Failed to initialize Gemini client")
+            return genai_sdk
+    except Exception:
+        logger.exception("Failed to initialize Gemini client")
         raise
+
 
 if GEMINI_API_KEY:
     try:
         client = init_gemini_client(GEMINI_API_KEY)
-        logging.info("Gemini client initialized from environment.")
-    except Exception as e:
-        logging.warning("Gemini client init failed: %s", str(e))
+        logger.info("Gemini client initialized from environment.")
+    except Exception:
+        logger.warning("Gemini client initialization failed; /ask will be unavailable until configured.")
 
-# ===========================
-# FLASK + MODEL
-# ===========================
+
+# =========== Flask app & model ===========
 app = Flask(__name__)
 
 MODEL_PATH = "model/colon_diseases.h5"
 if not os.path.exists(MODEL_PATH):
-    logging.error("Model file not found: %s. Please place your model at this path.", MODEL_PATH)
+    logger.error("Model not found at %s", MODEL_PATH)
     raise FileNotFoundError(MODEL_PATH)
 
 cnn_model = load_model(MODEL_PATH)
-logging.info("CNN model loaded from %s", MODEL_PATH)
+logger.info("CNN model loaded from %s", MODEL_PATH)
 
-# default labels (will be resized to model output if needed)
+# default label set (will trim/extend to model output)
 class_labels = [
     "Normal Colon",
     "Colon Ulcerative Colitis",
@@ -94,32 +92,53 @@ except Exception:
     model_output_size = None
 
 if model_output_size is not None and model_output_size != len(class_labels):
-    logging.warning("Model output size (%s) != class_labels (%s). Adjusting labels.", model_output_size, len(class_labels))
+    logger.warning("Model output size (%s) differs from provided labels (%s). Adjusting.", model_output_size, len(class_labels))
     if model_output_size > len(class_labels):
         class_labels += [f"Class {i}" for i in range(len(class_labels), model_output_size)]
     else:
         class_labels = class_labels[:model_output_size]
 
-# ensure unique
+# ensure label uniqueness
 seen = {}
 for i, lab in enumerate(class_labels):
     if lab in seen:
-        class_labels[i] = f"{lab} ({seen[lab]+1})"
+        class_labels[i] = f"{lab} ({seen[lab] + 1})"
         seen[lab] += 1
     else:
         seen[lab] = 1
 
-# ===========================
-# HELPERS
-# ===========================
-def predict_image(img_path: str):
-    """Load image, run model, return idx, label, confidence (0..1), probs list (0..1)."""
-    img = image.load_img(img_path, target_size=(256, 256))
+
+# =========== Utilities ===========
+
+def is_colon_image(path: str, red_threshold: float = 0.12) -> bool:
+    """
+    Heuristic check: colonoscopy mucosa often has reddish/pinkish coloration.
+    This function computes the proportion of pixels where R channel is
+    significantly higher than G and B. Returns True if proportion > red_threshold.
+    This is a simple heuristic — tune thresholds as needed.
+    """
+    try:
+        img = Image.open(path).convert("RGB")
+        arr = np.array(img).astype(np.int32)
+        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+        # Condition: red sufficiently higher than others and somewhat bright
+        redness_mask = (r > 100) & (r > g + 20) & (r > b + 20)
+        red_ratio = float(np.mean(redness_mask))
+        logger.debug("is_colon_image: red_ratio=%.4f (threshold=%.3f) for %s", red_ratio, red_threshold, path)
+        return red_ratio >= red_threshold
+    except Exception:
+        logger.exception("is_colon_image failed for %s", path)
+        return False
+
+
+def predict_image(img_path: str, target_size=(256, 256)):
+    """Return idx, label, confidence (0..1), probs list (0..1)."""
+    img = image.load_img(img_path, target_size=target_size)
     x = image.img_to_array(img)
-    x = np.expand_dims(x, axis=0)
-    x = x / 255.0
+    x = np.expand_dims(x, axis=0) / 255.0
     preds = cnn_model.predict(x)
     probs = list(map(float, preds[0].tolist()))
+    # normalize/protect against sizing differences
     if model_output_size is not None and len(probs) != model_output_size:
         if len(probs) < model_output_size:
             probs += [0.0] * (model_output_size - len(probs))
@@ -130,27 +149,25 @@ def predict_image(img_path: str):
     confidence = float(probs[idx])
     return idx, label, confidence, probs
 
+
 def safe_extract_prediction(pred_dict):
-    """Given a prediction object (from frontend or internal), normalize keys."""
+    """Normalize incoming prediction objects from client."""
     if not pred_dict or not isinstance(pred_dict, dict):
         return None
-    # try several common key names
-    label = pred_dict.get("predicted_class") or pred_dict.get("prediction") or pred_dict.get("class") or pred_dict.get("predicted") or pred_dict.get("label")
-    confidence = pred_dict.get("confidence") or pred_dict.get("confidence_score") or pred_dict.get("conf") or pred_dict.get("probability")
-    probs = pred_dict.get("probs") or pred_dict.get("probabilities") or pred_dict.get("scores") or pred_dict.get("prob")
-    labels = pred_dict.get("labels") or pred_dict.get("class_labels") or class_labels
-    # ensure numeric types where possible
+    label = pred_dict.get("predicted_class") or pred_dict.get("prediction") or pred_dict.get("class") or pred_dict.get("label")
+    confidence = pred_dict.get("confidence") or pred_dict.get("confidence_score") or pred_dict.get("conf")
+    probs = pred_dict.get("probs") or pred_dict.get("probabilities") or pred_dict.get("scores")
+    labels = pred_dict.get("labels") or class_labels
+    # normalize numeric confidence (allow 0..1 or 0..100)
     try:
-        if isinstance(confidence, str) and confidence.endswith("%"):
-            confidence = float(confidence.strip().replace("%",""))
-        elif isinstance(confidence, (int, float)) and confidence > 1:
-            # assume percent already
-            confidence = float(confidence)
-        elif isinstance(confidence, (int, float)) and confidence <= 1:
-            confidence = float(confidence) * 100.0
+        if isinstance(confidence, (int, float)):
+            if confidence <= 1:
+                confidence = float(confidence) * 100.0
+            else:
+                confidence = float(confidence)
     except Exception:
         pass
-    # if probs look like 0..100 convert to 0..100 floats
+    # probs to 0..100
     if isinstance(probs, list):
         cleaned = []
         for p in probs:
@@ -162,45 +179,35 @@ def safe_extract_prediction(pred_dict):
             except Exception:
                 cleaned.append(p)
         probs = cleaned
-    return {
-        "class": label,
-        "confidence": confidence,
-        "probs": probs,
-        "labels": labels
-    }
+    return {"class": label, "confidence": confidence, "probs": probs, "labels": labels}
+
 
 def extract_text_from_genai_response(resp):
     """Try to extract meaningful text from various SDK response shapes."""
     try:
-        # object with .text
         if hasattr(resp, "text"):
             return resp.text
-        # vertex-like dict
         if isinstance(resp, dict):
-            # google genai sometimes returns {'candidates':[{'content': '...'}]}
+            # common shapes: {'candidates': [{'content': '...'}]}
             cands = resp.get("candidates") or resp.get("outputs") or resp.get("replies")
             if isinstance(cands, list) and len(cands) > 0:
                 first = cands[0]
                 if isinstance(first, dict):
-                    # common fields
                     for k in ("content", "message", "output", "text"):
                         if k in first:
                             return first[k]
-                    # try nested
                     return str(first)
-            # fallback to any text field
             for k in ("response", "result", "output"):
                 if k in resp:
                     return str(resp[k])
             return str(resp)
-        # fallback
         return str(resp)
     except Exception:
         return str(resp)
 
-# ===========================
-# ROUTES
-# ===========================
+
+# =========== Routes ===========
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -208,29 +215,48 @@ def index():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    if "file" not in request.files:
-        return jsonify({"error": "Tidak ada file dikirim"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Nama file kosong"}), 400
-    ALLOWED_EXT = {"png", "jpg", "jpeg", "bmp"}
-    filename = secure_filename(file.filename)
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in ALLOWED_EXT:
-        return jsonify({"error": "Tipe file tidak didukung. Gunakan PNG/JPG/JPEG/BMP."}), 400
-    upload_folder = "uploads"
-    os.makedirs(upload_folder, exist_ok=True)
-    file_path = os.path.join(upload_folder, filename)
-    file.save(file_path)
+    """Accepts multipart/form-data with 'file'. Returns prediction JSON or error."""
     try:
+        if "file" not in request.files:
+            return jsonify({"error": "Tidak ada file dikirim"}), 400
+        file = request.files["file"]
+        if not file or file.filename == "":
+            return jsonify({"error": "Nama file kosong"}), 400
+
+        ALLOWED_EXT = {"png", "jpg", "jpeg", "bmp"}
+        filename = secure_filename(file.filename)
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_EXT:
+            return jsonify({"error": "Tipe file tidak didukung. Gunakan PNG/JPG/JPEG/BMP."}), 400
+
+        upload_folder = "uploads"
+        os.makedirs(upload_folder, exist_ok=True)
+        file_path = os.path.join(upload_folder, filename)
+        file.save(file_path)
+
+        # Pre-filter: is this plausibly a colonoscopy frame?
+        if not is_colon_image(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+            return jsonify({"error": "Gambar ini tampaknya bukan citra colonoscopy. Mohon unggah gambar endoskopi kolon."}), 400
+
+        # run model prediction
         idx, lab, conf, probs = predict_image(file_path)
+
+        # remove upload
         try:
             os.remove(file_path)
         except Exception:
             pass
-        probs_percent = [round(float(p) * 100, 2) if p <= 1 else round(float(p), 2) for p in probs]
-        # ensure probs are 0..100 floats
-        probs_percent = [p if p <= 100 else p for p in probs_percent]
+
+        # confidence is 0..1; apply threshold to ensure model is reasonably sure
+        CONF_THRESHOLD = 0.30  # tuneable
+        if conf < CONF_THRESHOLD:
+            return jsonify({"error": "Model tidak cukup yakin; gambar tidak dapat diidentifikasi dengan pasti."}), 400
+
+        probs_percent = [round(float(p) * 100, 2) for p in probs]
         return jsonify({
             "predicted_index": idx,
             "predicted_class": lab,
@@ -241,112 +267,124 @@ def predict():
             "labels": class_labels
         })
     except Exception as e:
-        logging.exception("Prediction failed")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Prediction failed")
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
 @app.route("/ask", methods=["POST"])
 def ask():
     """
-    Accepts either:
-      - JSON body: {"message": "...", "prediction": {...}}  (prediction produced by /predict or client)
-      - multipart/form-data with "file" (image) and optional "message": server will run local prediction then call Gemini
-    Returns: {"reply": "...", "prediction": {...}} or {"error": "..."}
+    Accepts:
+      - multipart/form-data with 'file' (image) and optional 'message' -> server runs prediction then calls Gemini
+      - JSON with {"message": "...", "prediction": {...}} where prediction can be result from /predict
+    Behavior:
+      - If an image is provided and validated as colon image, allow broad questions about that case (e.g., "jelaskan hasil analisis")
+      - If no image provided, restrict questions to colon-related topics only (keyword-based), unless a prediction object is provided
     """
     try:
-        # 1) extract inputs
         message = ""
         prediction = None
+        image_validated = False
 
+        # If an image file was uploaded, handle it (and run local prediction)
         if request.files and "file" in request.files:
-            # handle image-upload-question scenario
             file = request.files["file"]
-            if file and file.filename:
-                filename = secure_filename(file.filename)
-                upload_folder = "uploads"
-                os.makedirs(upload_folder, exist_ok=True)
-                path = os.path.join(upload_folder, filename)
-                file.save(path)
+            if not file or file.filename == "":
+                return jsonify({"error": "Nama file kosong"}), 400
+            filename = secure_filename(file.filename)
+            upload_folder = "uploads"
+            os.makedirs(upload_folder, exist_ok=True)
+            path = os.path.join(upload_folder, filename)
+            file.save(path)
+            # pre-filter
+            if not is_colon_image(path):
                 try:
-                    idx, lab, conf, probs = predict_image(path)
-                    probs_percent = [round(float(p) * 100, 2) if p <= 1 else round(float(p), 2) for p in probs]
-                    prediction = {
-                        "index": idx,
-                        "class": lab,
-                        "confidence": round(conf * 100, 2),
-                        "probs": probs_percent,
-                        "labels": class_labels
-                    }
-                except Exception as e:
-                    logging.exception("Local prediction failed in /ask")
-                    prediction = {"error": str(e)}
-                finally:
-                    try:
-                        os.remove(path)
-                    except Exception:
-                        pass
-            # optional message form
-            message = request.form.get("message", "")
+                    os.remove(path)
+                except Exception:
+                    pass
+                return jsonify({"error": "Gambar tidak dikenali sebagai citra colonoscopy."}), 400
+            # run prediction
+            try:
+                idx, lab, conf, probs = predict_image(path)
+                # remove file
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                # confidence check
+                if conf < 0.25:
+                    return jsonify({"error": "Model tidak cukup yakin pada gambar ini."}), 400
+                prediction = {
+                    "predicted_index": idx,
+                    "predicted_class": lab,
+                    "prediction": lab,
+                    "confidence": round(conf * 100, 2),
+                    "confidence_score": conf,
+                    "probs": [round(float(p) * 100, 2) for p in probs],
+                    "labels": class_labels
+                }
+                image_validated = True
+            except Exception as e:
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                logger.exception("Local prediction failed in /ask")
+                prediction = {"error": str(e)}
+            # user message may be provided in form
+            message = (request.form.get("message") or "").strip()
         else:
-            # JSON mode
+            # JSON mode: message + optional prediction object
             data = request.get_json(silent=True) or {}
-            message = data.get("message", "") or ""
+            message = (data.get("message") or "").strip()
             raw_pred = data.get("prediction")
             if raw_pred:
                 prediction = safe_extract_prediction(raw_pred)
 
-        # Build prompt depending on presence of prediction + message
-        use_pred = prediction if isinstance(prediction, dict) and not prediction.get("error") else None
-        if use_pred:
-            pred_class = use_pred.get("class", "-")
-            pred_conf = use_pred.get("confidence", "-")
-            pred_probs = use_pred.get("probs", [])
-            pred_labels = use_pred.get("labels", class_labels)
-            if isinstance(pred_labels, list) and isinstance(pred_probs, list) and len(pred_labels) == len(pred_probs):
-                prob_block = "\n".join([f"- {l}: {p}%" for l, p in zip(pred_labels, pred_probs)])
-            else:
-                prob_block = "No detailed probability breakdown available."
-        else:
-            pred_class = pred_conf = "-"
-            prob_block = "No prediction data."
+        # If there's no image validated AND the message is not colon-related AND no prediction -> reject
+        allowed_keywords = [
+            "colon", "colonoscopy", "polyp", "ulcer", "ulcerative colitis",
+            "colitis", "rectum", "digestive", "crohn", "colorectal", "colon cancer", "bowel"
+        ]
 
-        # If nothing to ask/send, return helpful message
-        if not message and not use_pred:
-            return jsonify({"error": "No message or prediction provided."}), 400
+        if not image_validated:
+            # If no message and no prediction -> nothing to act on
+            if not message and not prediction:
+                return jsonify({"error": "No message or validated image provided."}), 400
+            # If there is a prediction object (from /predict), allow general analysis questions like "jelaskan hasil analisis"
+            if not prediction:
+                lower_msg = message.lower()
+                if not any(k in lower_msg for k in allowed_keywords):
+                    return jsonify({"reply": "Maaf, saya hanya dapat menjawab pertanyaan terkait colon disease atau hasil colonoscopy.", "prediction": prediction})
 
-        # Build prompt (safe, includes medical instructions + request for recommendations)
-        if message and use_pred:
-            user_prompt = f"""USER QUESTION:
-{message}
+        # Build user prompt. If prediction exists, include structured prediction block.
+        if prediction:
+            # Build probability breakdown if available
+            prob_block = "No detailed probability breakdown available."
+            try:
+                labels = prediction.get("labels") or class_labels
+                probs = prediction.get("probs") or []
+                if isinstance(labels, list) and isinstance(probs, list) and len(labels) == len(probs):
+                    prob_lines = [f"- {lab}: {p}%" for lab, p in zip(labels, probs)]
+                    prob_block = "\n".join(prob_lines)
+                else:
+                    prob_block = str(probs)
+            except Exception:
+                prob_block = str(prediction.get("probs"))
 
-IMAGE ANALYSIS:
-- Predicted Condition: {pred_class}
-- Confidence: {pred_conf}%
-- Probability Breakdown:
+            user_prompt = f"""CASE DATA:
+Predicted Condition: {prediction.get('predicted_class') or prediction.get('class') or '-'}
+Confidence: {prediction.get('confidence') or prediction.get('confidence_score') or '-'}%
+Probability Breakdown:
 {prob_block}
 
-Please:
-1) Explain the analysis in simple language.
-2) Provide a possible clinical interpretation (NOT a definitive diagnosis).
-3) Recommend next steps (investigations, biopsy, specialist referral) and practical advice.
-4) Add a clear medical disclaimer at the end stating this is not a final diagnosis.
-"""
-        elif use_pred:
-            user_prompt = f"""Interpret these image analysis results:
-
-- Predicted Condition: {pred_class}
-- Confidence: {pred_conf}%
-- Probability Breakdown:
-{prob_block}
-
-Explain: meaning, possible causes, clinical relevance, recommended next steps, and end with a medical disclaimer.
+USER QUESTION:
+{message if message else '(no extra question; give a full analysis)'}
 """
         else:
-            user_prompt = message  # free question
+            user_prompt = f"USER QUESTION:\n{message}\n"
 
-        # Initialize client if not yet initialized
+        # Initialize Gemini client if needed
         global client
         if not client:
             key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -354,45 +392,58 @@ Explain: meaning, possible causes, clinical relevance, recommended next steps, a
                 client = init_gemini_client(key)
 
         if not client:
-            return jsonify({
-                "reply": "Gemini client not configured on server. Please set GEMINI_API_KEY in environment or .env.",
-                "prediction": prediction
-            }), 503
+            return jsonify({"reply": "Gemini client tidak dikonfigurasi pada server. Silakan set GEMINI_API_KEY." , "prediction": prediction}), 503
 
+        # System instruction aimed at producing MEDICAL COMPLEX structured output (Medis Lengkap)
         system_instruction = (
             "You are a careful, professional medical assistant specialized in colonoscopy image interpretation. "
-            "Always avoid giving definitive diagnoses and always include a disclaimer that the AI output is not a final diagnosis."
+            "You MUST follow this output structure exactly, and you are ONLY allowed to discuss colon diseases, colonoscopy findings, "
+            "and related colorectal conditions. If asked about any unrelated topics, politely refuse. "
+            "You must NOT provide a definitive diagnosis — always use probabilistic language and include a clear disclaimer. "
+            "Produce a structured, detailed medical-style response with these sections, and ALWAYS answer in Indonesian:\n\n"
+            "1) AI Analysis Summary: concise bullets of the main findings.\n"
+            "2) Probabilistic Interpretation: list candidate conditions with probabilities matching the prediction input when available.\n"
+            "3) Clinical Relevance & Possible Causes: short explanation.\n"
+            "4) Recommended Next Steps: numbered clinical recommendations (investigations, biopsy, referral, immediate actions).\n"
+            "5) Practical Patient Advice: brief patient-facing advice if appropriate.\n"
+            "6) Limitations & Disclaimer: clearly state this is not a final diagnosis and recommend consultation with a clinician.\n\n"
+            "Keep language clear and suitable for clinicians; also include a brief patient-friendly summary at the top (one or two lines)."
         )
 
-        # Try a modern available model; adapt if your account has different models
-        preferred_models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5-flash"]
+        # Build combined prompt content for Gemini
+        combined_prompt_text = f"System: {system_instruction}\n\nUser: {user_prompt}"
+
+        # Try available models (best-effort)
+        preferred_models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5"]
         response_obj = None
-        last_exception = None
+        last_exc = None
         for m in preferred_models:
             try:
+                # different SDKs may accept different call patterns, keep consistent with earlier usage
                 response_obj = client.models.generate_content(
                     model=m,
-                    contents=[{"role": "user", "parts": [{"text": f"System: {system_instruction}\n\nUser: {user_prompt}"}]}],
+                    contents=[{"role": "user", "parts": [{"text": combined_prompt_text}]}],
                 )
                 break
             except Exception as e:
-                logging.warning("Model %s failed: %s", m, str(e))
-                last_exception = e
+                logger.warning("Model %s failed: %s", m, str(e))
+                last_exc = e
                 continue
 
         if response_obj is None:
-            logging.exception("All Gemini attempts failed: %s", str(last_exception))
-            return jsonify({"error": "Gemini API call failed", "details": str(last_exception)}), 502
+            logger.exception("All Gemini attempts failed: %s", str(last_exc))
+            return jsonify({"error": "Gemini API call failed", "details": str(last_exc)}), 502
 
         reply_text = extract_text_from_genai_response(response_obj)
+        # return reply plus prediction (if any)
         return jsonify({"reply": reply_text, "prediction": prediction})
 
     except Exception as e:
-        logging.exception("Unhandled error in /ask")
+        logger.exception("Unhandled error in /ask")
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
-@app.route('/download_report', methods=['POST'])
+@app.route("/download_report", methods=["POST"])
 def download_report():
     """Generate PDF report using ReportLab. Accepts JSON with keys: prediction, aiSummary, geminiReply, imageData (data URL), metadata."""
     try:
@@ -431,12 +482,11 @@ def download_report():
             y -= 8
 
         # Image
-        if image_data and image_data.startswith('data:'):
+        if image_data and isinstance(image_data, str) and image_data.startswith('data:'):
             try:
                 header, b64 = image_data.split(',', 1)
                 img_bytes = base64.b64decode(b64)
                 img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
-                # resize if too large for page
                 max_w = width - 60
                 max_h = (height / 2)
                 iw, ih = img.size
@@ -448,7 +498,7 @@ def download_report():
                 c.drawImage(ir, 30, y - ih2, width=iw2, height=ih2)
                 y = y - ih2 - 12
             except Exception:
-                logging.exception('Failed to embed image in PDF')
+                logger.exception('Failed to embed image in PDF')
 
         # Prediction
         c.setFont('Helvetica-Bold', 12)
@@ -513,7 +563,7 @@ def download_report():
         return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=fname)
 
     except Exception as e:
-        logging.exception('Failed to generate report (ReportLab): %s', str(e))
+        logger.exception('Failed to generate report (ReportLab): %s', str(e))
         return jsonify({'error': 'Failed to generate PDF (ReportLab)', 'details': str(e), 'trace': traceback.format_exc()}), 500
 
 
