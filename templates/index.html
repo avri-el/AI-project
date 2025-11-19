@@ -120,6 +120,17 @@
         object-fit: cover;
       }
 
+      .small-btn.primary {
+        background: #083a87;
+        color: white;
+      }
+
+      .small-btn.danger {
+        background: #3d0c12;
+        color: white;
+      }
+
+
       /* Sidebar */
       .sidebar {
         background: linear-gradient(
@@ -788,22 +799,6 @@
             </svg>
             <div class="label">Chat</div>
           </div>
-          
-          <div class="nav-item" data-section="settings">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path
-                d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7z"
-                stroke="currentColor"
-                stroke-width="1.6"
-              />
-              <path
-                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 0 1 2.71 17.9l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82L4.21 5.7A2 2 0 0 1 7 2.9l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09c.1.6.56 1.09 1.14 1.39"
-                stroke="currentColor"
-                stroke-width="1.2"
-              />
-            </svg>
-            <div class="label">Settings</div>
-          </div>
         </nav>
 
         <div class="nav-footer">v0.9 • demo</div>
@@ -828,6 +823,18 @@
             <div style="font-size: 13px; color: var(--muted)">
               Upload endoscopy images or DICOM screenshots for AI review
             </div>
+          </div>
+
+         <div id="actionControls" style="display:flex; gap:8px; margin-bottom:10px;">
+
+              <button class="small-btn danger" id="cancelBtn">
+                  Cancel Analysis
+              </button>
+
+              <button class="small-btn primary" id="refreshBtn">
+                  Refresh Page
+              </button>
+
           </div>
 
           <div style="display: flex; gap: 8px; align-items: center">
@@ -1029,28 +1036,25 @@
   function showApp() {
     loginModal.style.display = "none";
     app.setAttribute("aria-hidden", "false");
-    document.getElementById("loginModal").setAttribute("aria-hidden", "true");
   }
 
-  // Auto-show app in local/dev environments so testers don't get stuck on the modal.
   try {
     const host = window.location.hostname;
     if (host === "localhost" || host === "127.0.0.1") {
-      // small delay so the UI paints correctly before hiding modal
       setTimeout(showApp, 120);
     }
-  } catch (err) {
-    // ignore; default behavior remains manual sign-in
-  }
+  } catch (err) {}
+
   loginBtn.addEventListener("click", showApp);
   ghostSign.addEventListener("click", showApp);
 
   // --- NAV ---
   const navItems = document.querySelectorAll(".nav-item");
   navItems.forEach((it) =>
-    it.addEventListener("click", (e) => {
-      navItems.forEach((n) => n.classList.remove("active"));
+    it.addEventListener("click", () => {
+      navItems.forEach(n => n.classList.remove("active"));
       it.classList.add("active");
+
       const sec = it.dataset.section;
       if (sec === "upload" || sec === "home") {
         document.getElementById("homeView").scrollIntoView({ behavior: "smooth" });
@@ -1062,7 +1066,7 @@
     })
   );
 
-  // --- FILE UPLOAD / PREVIEW / OVERLAY / ANALYSIS ---
+  // --- FILE UPLOAD / PREVIEW ---
   const dropzone = document.getElementById("dropzone");
   const fileInput = document.getElementById("fileInput");
   const previewWrap = document.getElementById("previewWrap");
@@ -1076,17 +1080,18 @@
   let lastFile = null;
   let scale = 1;
 
-  // drag++
   function prevent(e) {
     e.preventDefault();
     e.stopPropagation();
   }
+
   ["dragenter", "dragover"].forEach(ev =>
     dropzone.addEventListener(ev, (e) => {
       prevent(e);
       dropzone.classList.add("hover");
     })
   );
+
   ["dragleave", "drop"].forEach(ev =>
     dropzone.addEventListener(ev, (e) => {
       prevent(e);
@@ -1098,6 +1103,7 @@
     const f = e.dataTransfer.files && e.dataTransfer.files[0];
     if (f) loadFile(f);
   });
+
   fileInput.addEventListener("change", (e) => {
     const f = e.target.files[0];
     if (f) loadFile(f);
@@ -1107,14 +1113,17 @@
     const reader = new FileReader();
     reader.onload = function (ev) {
       previewImage.src = ev.target.result;
+
       previewImage.onload = function () {
         previewWrap.style.display = "flex";
         viewer.classList.add("show");
         currentImage = previewImage;
         lastFile = f;
+
         imgDims.textContent =
           previewImage.naturalWidth + " x " + previewImage.naturalHeight;
         lastAnalysis.textContent = "Not analyzed";
+
         drawOverlaySample();
         resizeCanvas();
       };
@@ -1149,12 +1158,10 @@
     ctx.fillStyle = "rgba(2,6,12,0.35)";
     ctx.fillRect(0, 0, overlay.width, overlay.height);
 
-    const w = overlay.width,
-      h = overlay.height;
-    const cx = w * 0.62,
-      cy = h * 0.52;
-    const rx = Math.max(60, w * 0.14),
-      ry = Math.max(40, h * 0.12);
+    const w = overlay.width, h = overlay.height;
+    const cx = w * 0.62, cy = h * 0.52;
+    const rx = Math.max(60, w * 0.14);
+    const ry = Math.max(40, h * 0.12);
 
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx + 22, ry + 14, 0, 0, Math.PI * 2);
@@ -1183,37 +1190,69 @@
     scale = Math.min(2, scale + 0.25);
     previewImage.style.transform = `scale(${scale})`;
   });
+
   document.getElementById("zoomOut").addEventListener("click", () => {
     scale = Math.max(0.6, scale - 0.25);
     previewImage.style.transform = `scale(${scale})`;
   });
+
   document.getElementById("resetView").addEventListener("click", () => {
     scale = 1;
     previewImage.style.transform = `scale(1)`;
   });
 
-  // --- ANALYSIS ---
+  // =====================================================
+  // ===============   ANALYSIS + CANCEL   ===============
+  // =====================================================
+
   const analyzeBtn = document.getElementById("analyzeBtn");
   const aiSummary = document.getElementById("aiSummary");
   const lastAnalysisEl = document.getElementById("lastAnalysis");
-
   let lastAnalysisResult = null;
 
-  function escapeHtml(str) {
-    return String(str)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+  // GLOBAL CANCEL FLAG
+  window.cancelRequested = false;
+
+  async function cancellableFetch(url, options = {}) {
+    if (window.cancelRequested) {
+      throw new Error("Analysis canceled.");
+    }
+    return fetch(url, options);
   }
 
-  function toPercent(v) {
-    if (v === null || v === undefined || Number.isNaN(Number(v))) return 0;
-    const n = Number(v);
-    if (n <= 1.01 && n >= 0) return Math.round(n * 100);
-    return Math.round(n);
+  async function predictWithCancel(file) {
+    window.cancelRequested = false;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const resp = await cancellableFetch("/predict", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!resp.ok) throw new Error("Server error");
+      const data = await resp.json();
+
+      return data;
+    } catch (err) {
+      if (err.message.includes("canceled")) return null;
+      throw err;
+    }
   }
+
+  document.getElementById("cancelBtn").onclick = function () {
+    window.cancelRequested = true;
+
+    analyzeBtn.disabled = false;
+    analyzeBtn.textContent = "Run Analysis";
+    aiSummary.innerHTML = "<b>⛔ Analysis canceled.</b>";
+  };
+
+  document.getElementById("refreshBtn").onclick = function () {
+    window.location.reload();
+  };
 
   analyzeBtn.addEventListener("click", async () => {
     if (!currentImage || !lastFile) {
@@ -1225,41 +1264,31 @@
     analyzeBtn.disabled = true;
 
     try {
-      const fd = new FormData();
-      fd.append("file", lastFile);
+      const data = await predictWithCancel(lastFile);
 
-      const resp = await fetch("/predict", {
-        method: "POST",
-        body: fd,
-      });
+      if (!data) {
+        aiSummary.innerHTML = "<b>⛔ Analysis canceled by user.</b>";
+        return;
+      }
 
-      const data = await resp.json();
       if (data.error) {
         aiSummary.textContent = `Error: ${data.error}`;
         return;
       }
 
-      // Accept both legacy and new response shapes
-      const labels = (data.prediction && data.prediction.labels) || data.labels || [];
-      const probs = (data.prediction && data.prediction.probs) || data.probs || [];
-      const pred = (data.prediction && data.prediction.predicted_class) || data.predicted_class || (labels[0] || "-");
-      const conf = Math.round((data.prediction && data.prediction.confidence) || data.confidence || 0);
+      // ========= RESULT ==========
+      const labels = data.labels || data.prediction.labels || [];
+      const probs = data.probs || data.prediction.probs || [];
+      const pred = data.predicted_class || data.prediction.predicted_class || "-";
+      const conf = Math.round(data.confidence || data.prediction.confidence || 0);
 
-      lastAnalysisResult = {
-        labels,
-        probs,
-        predicted: pred,
-        confidence: conf,
-      };
+      lastAnalysisResult = { labels, probs, predicted: pred, confidence: conf };
 
-      // If server returned an auto summary, display that instead of simplified box
       if (data.summary) {
-        // show the structured summary in the AI summary panel
-        aiSummary.innerHTML = escapeHtml(data.summary).replace(/\n/g, "<br>");
+        aiSummary.innerHTML = data.summary.replace(/\n/g, "<br>");
       } else {
-        aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(
-          pred
-        )}</span>.<br><strong>Confidence:</strong> ${conf}%`;
+        aiSummary.innerHTML =
+          `<strong>Findings:</strong> ${pred}<br><strong>Confidence:</strong> ${conf}%`;
       }
 
       lastAnalysisEl.textContent = new Date().toLocaleString();
@@ -1278,7 +1307,6 @@
           <div class="prob-bar"><span style="width:${pct}%"></span></div>
           <div class="confidence">${pct}%</div>
         `;
-
         probContainer.appendChild(item);
       });
 
@@ -1291,7 +1319,7 @@
     }
   });
 
-  // --- CHAT WITH GEMINI ---
+  // =============== CHAT GEMINI ===============
   const sendBtn = document.getElementById("sendBtn");
   const chatInput = document.getElementById("chatInput");
   const messages = document.getElementById("messages");
@@ -1304,37 +1332,40 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
-  // gunakan lastAnalysisResult yang sudah ada di UI (sudah kita pakai sebelumnya)
   sendBtn.addEventListener("click", async () => {
     const txt = chatInput.value.trim();
     if (!txt) return;
+
     appendMessage(txt, "user");
     chatInput.value = "";
 
-    // show typing...
     const typingEl = document.createElement("div");
     typingEl.className = "msg ai";
     typingEl.innerHTML = '<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
     messages.appendChild(typingEl);
-    messages.scrollTop = messages.scrollHeight;
 
     try {
-      const payload = { message: txt, prediction: lastAnalysisResult || null, summary: "long" };
       const resp = await fetch("/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          message: txt,
+          prediction: lastAnalysisResult,
+          summary: "long",
+        }),
       });
+
       const data = await resp.json();
       typingEl.remove();
+
       if (data.error) appendMessage("AI Error: " + data.error, "ai");
       else appendMessage(data.reply, "ai");
+
     } catch (err) {
       typingEl.remove();
       appendMessage("Connection Error: " + err.message, "ai");
     }
   });
-
 
   chatInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1343,64 +1374,70 @@
     }
   });
 
-  // --- DOWNLOAD REPORT ---
+  // ================= DOWNLOAD REPORT ==================
   const downloadBtn = document.getElementById("downloadReport");
   downloadBtn.addEventListener("click", async () => {
     if (!lastAnalysisResult) {
-      alert("Tidak ada analisis untuk diunduh. Jalankan analisis terlebih dahulu.");
+      alert("Tidak ada analisis untuk diunduh.");
       return;
     }
 
-    downloadBtn.textContent = "Preparing report…";
+    downloadBtn.textContent = "Preparing…";
     downloadBtn.disabled = true;
 
-    const lastAIs = Array.from(messages.querySelectorAll('.msg.ai'));
-    const lastAiText = lastAIs.length ? lastAIs[lastAIs.length - 1].innerText : "";
+    const lastAIs = [...messages.querySelectorAll(".msg.ai")];
+    const lastAiText =
+      lastAIs.length ? lastAIs[lastAIs.length - 1].innerText : "";
 
     const payload = {
       prediction: lastAnalysisResult,
-      aiSummary: aiSummary.innerText || aiSummary.textContent || "",
+      aiSummary: aiSummary.innerText,
       geminiReply: lastAiText,
-      imageData: (previewImage && previewImage.src && previewWrap.style.display !== 'none') ? previewImage.src : null,
-      metadata: { imgDims: imgDims.textContent || "-", analyzedAt: lastAnalysisEl.textContent || "-" }
+      imageData:
+        previewImage && previewImage.src && previewWrap.style.display !== "none"
+          ? previewImage.src
+          : null,
+      metadata: {
+        imgDims: imgDims.textContent,
+        analyzedAt: lastAnalysisEl.textContent,
+      },
     };
 
     try {
-      const resp = await fetch('/download_report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const resp = await fetch("/download_report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (!resp.ok) {
-        let errText = 'Failed to generate report.';
-        try { const j = await resp.json(); errText = j.error || JSON.stringify(j); } catch (e) {}
-        alert('Report error: ' + errText);
+        alert("Report error.");
         return;
       }
 
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+
+      const a = document.createElement("a");
       a.href = url;
-      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const ts = new Date().toISOString().replace(/[:.]/g, "-");
       a.download = `colonai_report_${ts}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
 
+      URL.revokeObjectURL(url);
     } catch (err) {
-      alert('Connection error: ' + err.message);
+      alert("Connection error: " + err.message);
     } finally {
-      downloadBtn.textContent = 'Download Report';
+      downloadBtn.textContent = "Download Report";
       downloadBtn.disabled = false;
     }
   });
 
-})();
-
+})();  
 </script>
+
 
 
   </body>

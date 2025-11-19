@@ -321,7 +321,7 @@ def generate_medical_summary(prediction):
     global client
     if client:
         try:
-            preferred_models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5"]
+            preferred_models = ["models/gemini-2.5-flash"]
             last_exc = None
             for m in preferred_models:
                 try:
@@ -448,174 +448,132 @@ def predict():
 @app.route("/ask", methods=["POST"])
 def ask():
     """
-    Chat endpoint:
-    - Accepts JSON { message, prediction? , summary? } OR multipart with file + form message.
-    - If prediction not provided, will use last server-side prediction if available.
-    - If neither prediction nor last prediction exists, will require colon-related keywords.
-    - Attempts to call Gemini when available; otherwise uses fallback answer generation.
+    Chat endpoint dengan deteksi prompt nonsense.
+    Jika message nonsense → prediction DIHAPUS, AI tidak boleh menjawab medis.
+    Jika message jelas tapi tanpa prediction → chatbot netral.
+    Jika ada prediction → AI memakai konteks medis.
     """
     try:
-        # accept both JSON and form-data
+        # ========== READ INPUT ==========
         if request.content_type and "application/json" in request.content_type:
             data = request.get_json(silent=True) or {}
             message = (data.get("message") or "").strip()
             raw_pred = data.get("prediction")
-            incoming_summary = data.get("summary")
-            if raw_pred:
-                extracted = safe_extract_prediction(raw_pred)
-                if extracted:
-                    if incoming_summary:
-                        extracted["summary"] = incoming_summary
-                    prediction = extracted
-                    set_last_prediction(prediction)
-                else:
-                    prediction = None
-            else:
-                prediction = None
         else:
-            # multipart/form-data path (maybe with uploaded file)
-            prediction = None
-            message = ""
-            if request.files and "file" in request.files:
-                file = request.files["file"]
-                if file and file.filename:
-                    filename = secure_filename(file.filename)
-                    upload_folder = "uploads"
-                    os.makedirs(upload_folder, exist_ok=True)
-                    path = os.path.join(upload_folder, filename)
-                    file.save(path)
-                    try:
-                        if not is_colon_image(path):
-                            try:
-                                os.remove(path)
-                            except Exception:
-                                pass
-                            return jsonify({"error": "Gambar tidak dikenali sebagai citra colonoscopy."}), 400
-                        idx, lab, conf, probs = predict_image(path)
-                        try:
-                            os.remove(path)
-                        except Exception:
-                            pass
-                        if conf < 0.25:
-                            return jsonify({"error": "Model tidak cukup yakin pada gambar ini."}), 400
-                        prediction = {
-                            "predicted_index": idx,
-                            "predicted_class": lab,
-                            "prediction": lab,
-                            "confidence": round(conf * 100, 2),
-                            "confidence_score": conf,
-                            "probs": [round(float(p) * 100, 2) for p in probs],
-                            "labels": class_labels
-                        }
-                        set_last_prediction(prediction)
-                    except Exception as err:
-                        try:
-                            os.remove(path)
-                        except Exception:
-                            pass
-                        logger.exception("Local prediction failed in /ask")
-                        return jsonify({"error": "Local prediction failed", "details": str(err)}), 500
             message = (request.form.get("message") or "").strip()
+            raw_pred = None
 
-        # If no prediction in payload, use last server-side prediction
-        if not locals().get("prediction"):
+        # ========== NONSENSE DETECTION ==========
+        def is_nonsense(msg: str) -> bool:
+            if not msg:
+                return True
+
+            m = msg.lower().strip()
+
+            # 1-2 karakter
+            if len(m) <= 2:
+                return True
+
+            # hanya angka
+            if m.isnumeric():
+                return True
+
+            # hanya simbol
+            if all(not c.isalnum() for c in m):
+                return True
+
+            # huruf tanpa vokal → biasanya gibberish
+            if m.isalpha() and not any(v in m for v in "aeiou"):
+                return True
+
+            # campuran angka-huruf pendek
+            if len(m) <= 5 and any(c.isalpha() for c in m) and any(c.isdigit() for c in m):
+                return True
+
+            return False
+
+        # ========== IF NONSENSE → STOP & RESET ==========
+        if is_nonsense(message):
+            # HAPUS prediction global
+            set_last_prediction(None)
+
+            return jsonify({
+                "reply": "Maaf, saya tidak dapat memahami pertanyaan Anda. Silakan berikan pertanyaan yang lebih jelas.",
+                "prediction": None
+            })
+
+        # ========== PARSE VALID PREDICTION (ONLY AFTER MESSAGE VALID) ==========
+        prediction = None
+        if raw_pred:
+            extracted = safe_extract_prediction(raw_pred)
+            if extracted:
+                prediction = extracted
+                set_last_prediction(extracted)
+        else:
             prediction = get_last_prediction()
 
-        # validation and allowed keywords
-        allowed_keywords = [
-            "colon", "colonoscopy", "polyp", "ulcer", "ulcerative colitis",
-            "colitis", "rectum", "digestive", "crohn", "colorectal", "colon cancer", "bowel"
-        ]
-        followup_keywords = [
-            "jelaskan", "artinya", "penjelasan", "apa maksudnya",
-            "lanjutkan", "detailkan", "interpretasi", "analisis", "hasil", "penyakit ini", "kasus ini", "dampak", "resiko", "risiko"
-        ]
-
+        # ========== IF NO PREDICTION → CHATBOT NETRAL ==========
         if not prediction:
-            # no context — require colon-related question
-            if not message:
-                return jsonify({"error": "No message or prediction available."}), 400
-            lower_msg = message.lower()
-            if not any(k in lower_msg for k in allowed_keywords + followup_keywords):
-                return jsonify({"reply": "Maaf, saya hanya dapat menjawab pertanyaan terkait hasil colonoscopy atau penyakit kolon."}), 400
+            # bebas menjawab netral tapi tetap aman
+            return jsonify({
+                "reply": "Saya dapat membantu menjawab pertanyaan umum, tetapi untuk analisis medis silakan unggah gambar colonoscopy terlebih dahulu.",
+                "prediction": None
+            })
 
-        # Build user prompt/context
-        if prediction:
-            labels = prediction.get("labels") or class_labels
-            probs = prediction.get("probs") or []
-            try:
-                prob_lines = "\n".join([f"- {labels[i]}: {probs[i]}%" for i in range(len(labels))])
-            except Exception:
-                prob_lines = str(probs)
-            summary_block = prediction.get("summary", "")
-            case_block = f"""Predicted Condition: {prediction.get('predicted_class') or '-'}
-Confidence: {prediction.get('confidence') or '-'}%
-Probability Breakdown:
+        # ========== BUILD MEDICAL PROMPT ==========
+        labels = prediction.get("labels") or []
+        probs = prediction.get("probs") or []
+        prob_lines = "\n".join([
+            f"- {labels[i]}: {probs[i]}%" for i in range(len(labels))
+        ])
+
+        summary_block = prediction.get("summary", "")
+
+        ai_context = f"""
+Predicted Condition: {prediction.get('predicted_class')}
+Confidence: {prediction.get('confidence')}%
+Probabilities:
 {prob_lines}
 
-Existing AI Summary:
+Existing Summary:
 {summary_block}
 """
-            user_prompt = f"{case_block}\nUser question: {message}\n"
-        else:
-            user_prompt = f"User question: {message}\n"
 
-        # Setup Gemini prompt for short Q/A (don't force full 6-section unless requested)
+        user_prompt = f"{ai_context}\nUser question: {message}"
+
         system_instruction = (
-            "You are a professional medical assistant specialized in colonoscopy interpretation and colon diseases. "
-            "Answer in Indonesian. Use conditional language and do NOT provide definitive diagnosis. "
-            "If the user asks for a full formal report, produce the 6-section 'Medis Lengkap' format. "
-            "Otherwise answer the user's question directly and concisely for clinicians and provide a short patient-friendly note if relevant."
+            "You are a medical assistant specialized in colonoscopy. "
+            "Jawab singkat, jelas, dalam bahasa Indonesia, dan gunakan bahasa kondisional."
         )
-        combined_prompt_text = f"System: {system_instruction}\n\nContext:\n{user_prompt}"
 
-        # Try to ensure client is initialized
+        final_prompt = f"System: {system_instruction}\n\n{user_prompt}"
+
+        # ========== GEMINI CALL ==========
         global client
-        if not client and (GEMINI_API_KEY := os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+        if client:
             try:
-                client = init_gemini_client(GEMINI_API_KEY)
-            except Exception:
-                client = None
+                resp = client.models.generate_content(
+                    model="models/gemini-2.5-flash",
+                    contents=[{"role": "user", "parts": [{"text": final_prompt}]}]
+                )
+                text = extract_text_from_genai_response(resp)
+                return jsonify({"reply": text, "prediction": prediction})
+            except:
+                pass
 
-        # If no Gemini client, return a contextual fallback (not just the summary)
-        if not client:
-            # generate fallback answer focusing on user's question
-            fallback_answer = generate_contextual_fallback(prediction, message)
-            return jsonify({"reply": fallback_answer, "prediction": prediction})
-
-        # Call Gemini (guarded)
-        preferred_model = "models/gemini-2.5-flash"
-
-        try:
-            import time
-            time.sleep(1.2)   # anti-429
-
-            response_obj = client.models.generate_content(
-                model=preferred_model,
-                contents=[{"role": "user", "parts": [{"text": combined_prompt_text}]}],
-            )
-
-        except Exception as e:
-            logger.warning("Gemini failed: %s", str(e))
-            fallback_answer = generate_contextual_fallback(prediction, message)
-            fallback_answer += "\n\nCatatan: Gemini API gagal merespons; ini adalah jawaban fallback."
-            return jsonify({"reply": fallback_answer, "prediction": prediction})
-
-
-        if response_obj is None:
-            logger.exception("All Gemini attempts failed for /ask: %s", str(last_exc))
-            fallback_answer = generate_contextual_fallback(prediction, message)
-            fallback_answer += "\n\nCatatan: Gemini API gagal merespons; ini adalah jawaban fallback."
-            return jsonify({"reply": fallback_answer, "prediction": prediction}), 200
-
-        reply_text = extract_text_from_genai_response(response_obj)
-        if not reply_text or len(reply_text.strip()) == 0:
-            reply_text = generate_contextual_fallback(prediction, message)
-        return jsonify({"reply": reply_text, "prediction": prediction})
+        # ========== FALLBACK ==========
+        return jsonify({
+            "reply": generate_contextual_fallback(prediction, message),
+            "prediction": prediction
+        })
 
     except Exception as e:
         logger.exception("Unhandled error in /ask")
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        return jsonify({"error": str(e)}), 500
+
+
+
+
 
 
 def generate_contextual_fallback(prediction, message):
