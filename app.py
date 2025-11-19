@@ -1,6 +1,7 @@
 # app.py
 import os
 import io
+import threading
 import logging
 import traceback
 import base64
@@ -14,6 +15,11 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Image as RLImage
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.enums import TA_JUSTIFY
+from reportlab.lib.units import inch    
 
 # Keras / TF model
 from tensorflow.keras.models import load_model
@@ -28,7 +34,7 @@ except Exception:
     except Exception:
         genai_sdk = None
 
-# Optional dotenv
+# Optional dotenv (safe if not available)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -64,7 +70,7 @@ if GEMINI_API_KEY:
         client = init_gemini_client(GEMINI_API_KEY)
         logger.info("Gemini client initialized from environment.")
     except Exception:
-        logger.warning("Gemini client initialization failed; /ask will be unavailable until configured.")
+        logger.warning("Gemini client initialization failed; Gemini features will fallback to templated responses.")
 
 
 # =========== Flask app & model ===========
@@ -107,27 +113,53 @@ for i, lab in enumerate(class_labels):
     else:
         seen[lab] = 1
 
+# =========== Globals for session-less "last prediction" ===========
+_last_prediction = None
+_last_pred_lock = threading.Lock()
+
+
+def set_last_prediction(pred: dict):
+    global _last_prediction
+    with _last_pred_lock:
+        _last_prediction = pred
+
+
+def get_last_prediction():
+    with _last_pred_lock:
+        return _last_prediction
+
 
 # =========== Utilities ===========
 
-def is_colon_image(path: str, red_threshold: float = 0.12) -> bool:
-    """
-    Heuristic check: colonoscopy mucosa often has reddish/pinkish coloration.
-    This function computes the proportion of pixels where R channel is
-    significantly higher than G and B. Returns True if proportion > red_threshold.
-    This is a simple heuristic — tune thresholds as needed.
-    """
+def is_colon_image(img_path: str, red_threshold: float = 0.06) -> bool:
+    """Heuristic check to see if an image looks like an endoscopy/colon image."""
     try:
-        img = Image.open(path).convert("RGB")
-        arr = np.array(img).astype(np.int32)
-        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-        # Condition: red sufficiently higher than others and somewhat bright
-        redness_mask = (r > 100) & (r > g + 20) & (r > b + 20)
-        red_ratio = float(np.mean(redness_mask))
-        logger.debug("is_colon_image: red_ratio=%.4f (threshold=%.3f) for %s", red_ratio, red_threshold, path)
-        return red_ratio >= red_threshold
+        img = Image.open(img_path).convert("RGB")
+        arr = np.array(img)
+        if arr.size == 0:
+            return False
+        r = arr[:, :, 0].astype(float) / 255.0
+        g = arr[:, :, 1].astype(float) / 255.0
+        b = arr[:, :, 2].astype(float) / 255.0
+        mx = np.maximum(np.maximum(r, g), b)
+        mn = np.minimum(np.minimum(r, g), b)
+        diff = mx - mn + 1e-8
+        hue = np.zeros_like(mx)
+        mask = mx == r
+        hue[mask] = (g[mask] - b[mask]) / diff[mask]
+        mask = mx == g
+        hue[mask] = 2.0 + (b[mask] - r[mask]) / diff[mask]
+        mask = mx == b
+        hue[mask] = 4.0 + (r[mask] - g[mask]) / diff[mask]
+        hue = (hue / 6.0) % 1.0
+        sat = (mx - mn) / (mx + 1e-8)
+        val = mx
+        red_mask = ((hue < 0.05) | (hue > 0.9)) & (sat > 0.2) & (val > 0.15)
+        red_frac = float(np.sum(red_mask)) / float(hue.size)
+        logger.debug("is_colon_image: red_frac=%s", red_frac)
+        return red_frac >= red_threshold
     except Exception:
-        logger.exception("is_colon_image failed for %s", path)
+        logger.exception("is_colon_image check failed")
         return False
 
 
@@ -138,7 +170,6 @@ def predict_image(img_path: str, target_size=(256, 256)):
     x = np.expand_dims(x, axis=0) / 255.0
     preds = cnn_model.predict(x)
     probs = list(map(float, preds[0].tolist()))
-    # normalize/protect against sizing differences
     if model_output_size is not None and len(probs) != model_output_size:
         if len(probs) < model_output_size:
             probs += [0.0] * (model_output_size - len(probs))
@@ -151,35 +182,83 @@ def predict_image(img_path: str, target_size=(256, 256)):
 
 
 def safe_extract_prediction(pred_dict):
-    """Normalize incoming prediction objects from client."""
+    """
+    Normalize incoming prediction objects from client.
+    Produces a dict with keys:
+      - predicted_class (str)
+      - confidence (float 0..100)
+      - probs (list of floats 0..100)
+      - labels (list)
+    """
     if not pred_dict or not isinstance(pred_dict, dict):
         return None
-    label = pred_dict.get("predicted_class") or pred_dict.get("prediction") or pred_dict.get("class") or pred_dict.get("label")
-    confidence = pred_dict.get("confidence") or pred_dict.get("confidence_score") or pred_dict.get("conf")
-    probs = pred_dict.get("probs") or pred_dict.get("probabilities") or pred_dict.get("scores")
-    labels = pred_dict.get("labels") or class_labels
-    # normalize numeric confidence (allow 0..1 or 0..100)
+    # If wrapper with 'prediction' key
+    if "prediction" in pred_dict and isinstance(pred_dict["prediction"], dict):
+        pred_dict = pred_dict["prediction"]
+    label = (
+        pred_dict.get("predicted_class")
+        or pred_dict.get("predicted")
+        or pred_dict.get("prediction")
+        or pred_dict.get("class")
+        or pred_dict.get("label")
+    )
+    confidence = (
+        pred_dict.get("confidence")
+        or pred_dict.get("confidence_score")
+        or pred_dict.get("conf")
+    )
+    probs = (
+        pred_dict.get("probs")
+        or pred_dict.get("probabilities")
+        or pred_dict.get("scores")
+        or pred_dict.get("prob")
+    )
+    labels = pred_dict.get("labels") or pred_dict.get("class_labels") or class_labels
+
+    # Normalize confidence to 0..100 float
     try:
-        if isinstance(confidence, (int, float)):
-            if confidence <= 1:
-                confidence = float(confidence) * 100.0
+        if isinstance(confidence, str):
+            s = confidence.strip()
+            if s.endswith("%"):
+                confidence = float(s[:-1])
             else:
-                confidence = float(confidence)
+                confidence = float(s)
+        if isinstance(confidence, (int, float)):
+            confidence = float(confidence)
+            if confidence <= 1.1:
+                confidence = confidence * 100.0
     except Exception:
-        pass
-    # probs to 0..100
+        confidence = None
+
+    # normalize probs into 0..100 floats
+    cleaned = []
     if isinstance(probs, list):
-        cleaned = []
         for p in probs:
             try:
                 pv = float(p)
-                if 0 <= pv <= 1:
+                if 0 <= pv <= 1.01:
                     pv = pv * 100.0
                 cleaned.append(round(pv, 2))
             except Exception:
-                cleaned.append(p)
-        probs = cleaned
-    return {"class": label, "confidence": confidence, "probs": probs, "labels": labels}
+                pass
+    else:
+        probs = []
+
+    if not isinstance(labels, list):
+        labels = list(class_labels)
+
+    # Pad/truncate probs to labels length
+    if len(cleaned) < len(labels):
+        cleaned += [0.0] * (len(labels) - len(cleaned))
+    elif len(cleaned) > len(labels):
+        cleaned = cleaned[: len(labels)]
+
+    return {
+        "predicted_class": label if label is not None else "-",
+        "confidence": round(float(confidence), 2) if confidence is not None else None,
+        "probs": cleaned,
+        "labels": labels,
+    }
 
 
 def extract_text_from_genai_response(resp):
@@ -188,7 +267,6 @@ def extract_text_from_genai_response(resp):
         if hasattr(resp, "text"):
             return resp.text
         if isinstance(resp, dict):
-            # common shapes: {'candidates': [{'content': '...'}]}
             cands = resp.get("candidates") or resp.get("outputs") or resp.get("replies")
             if isinstance(cands, list) and len(cands) > 0:
                 first = cands[0]
@@ -206,6 +284,82 @@ def extract_text_from_genai_response(resp):
         return str(resp)
 
 
+def generate_medical_summary(prediction):
+    """
+    Generate a structured 'Medis Lengkap' summary for the given prediction.
+    Tries Gemini first; on failure returns a templated fallback summary.
+    """
+    if not prediction or not isinstance(prediction, dict):
+        return "Tidak ada data prediksi untuk menghasilkan ringkasan."
+
+    pred_label = prediction.get("predicted_class") or prediction.get("prediction") or "-"
+    confidence = prediction.get("confidence") or prediction.get("confidence_score") or "-"
+    probs = prediction.get("probs") or []
+    labels = prediction.get("labels") or class_labels
+
+    prob_lines = []
+    try:
+        for i, lab in enumerate(labels):
+            p = probs[i] if i < len(probs) else 0
+            prob_lines.append(f"- {lab}: {p}%")
+    except Exception:
+        prob_lines = [str(probs)]
+
+    user_section = f"Predicted Condition: {pred_label}\nConfidence: {confidence}%\nProbability Breakdown:\n" + "\n".join(prob_lines)
+
+    system_instruction = (
+        "You are a medical AI assistant specialized ONLY in colonoscopy interpretation and colon diseases. "
+        "Produce a structured MEDICAL REPORT in Indonesian with these sections:\n\n"
+        "PATIENT-FRIENDLY SUMMARY (1-2 lines)\n"
+        "1) AI Analysis Summary\n2) Probabilistic Interpretation\n3) Clinical Relevance & Possible Causes\n4) Recommended Next Steps\n5) Practical Patient Advice\n6) Limitations & Disclaimer\n\n"
+        "Use conditional language (mungkin, kemungkinan). Do NOT give definitive diagnoses."
+    )
+
+    prompt_text = f"System: {system_instruction}\n\nUser: Berikut data kasus:\n{user_section}\n\nTolong hasilkan laporan sesuai format di atas."
+
+    # Try Gemini
+    global client
+    if client:
+        try:
+            preferred_models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5"]
+            last_exc = None
+            for m in preferred_models:
+                try:
+                    resp = client.models.generate_content(
+                        model=m,
+                        contents=[{"role": "user", "parts": [{"text": prompt_text}]}],
+                    )
+                    text = extract_text_from_genai_response(resp)
+                    if text and len(text.strip()) > 0:
+                        return text
+                except Exception as e:
+                    logger.warning("Gemini model %s failed for summary: %s", m, str(e))
+                    last_exc = e
+                    continue
+            logger.warning("All Gemini attempts failed for summary generation: %s", str(last_exc))
+        except Exception:
+            logger.exception("Exception while trying to generate summary with Gemini")
+
+    # fallback templated summary
+    try:
+        top = sorted(zip(probs, labels), reverse=True)[:len(labels)]
+        prob_text = "\n".join([f"- {lab}: {p}%" for p, lab in top])
+    except Exception:
+        prob_text = str(probs)
+
+    fallback = (
+        f"Patient Summary:\nTemuan utama: {pred_label} (Confidence {confidence}%).\n\n"
+        "1) AI Analysis Summary:\n"
+        f"• Temuan utama: {pred_label} (confidence {confidence}%).\n\n"
+        "2) Probabilistic Interpretation:\n" + prob_text + "\n\n"
+        "3) Clinical Relevance & Possible Causes:\n• Kemungkinan penyebab termasuk polip atau inflamasi tergantung konteks klinis.\n\n"
+        "4) Recommended Next Steps:\n1. Konsultasi gastroenterolog.\n2. Pertimbangkan biopsi atau polypektomi sesuai tampilan endoskopik.\n\n"
+        "5) Practical Patient Advice:\n• Hindari tindakan mandiri; konsultasikan ke dokter. Segera ke fasilitas kesehatan bila ada perdarahan berat atau nyeri hebat.\n\n"
+        "6) Limitations & Disclaimer:\nIni bukan diagnosis final. Hasil harus dikonfirmasi oleh dokter spesialis gastroenterologi."
+    )
+    return fallback
+
+
 # =========== Routes ===========
 
 @app.route("/")
@@ -215,7 +369,7 @@ def index():
 
 @app.route("/predict", methods=["POST"])
 def predict():
-    """Accepts multipart/form-data with 'file'. Returns prediction JSON or error."""
+    """Accepts multipart/form-data with 'file'. Returns prediction JSON and auto-generated summary (if possible)."""
     try:
         if "file" not in request.files:
             return jsonify({"error": "Tidak ada file dikirim"}), 400
@@ -251,18 +405,38 @@ def predict():
         except Exception:
             pass
 
-        # confidence is 0..1; apply threshold to ensure model is reasonably sure
         CONF_THRESHOLD = 0.30  # tuneable
         if conf < CONF_THRESHOLD:
             return jsonify({"error": "Model tidak cukup yakin; gambar tidak dapat diidentifikasi dengan pasti."}), 400
 
         probs_percent = [round(float(p) * 100, 2) for p in probs]
-        return jsonify({
+        prediction = {
             "predicted_index": idx,
             "predicted_class": lab,
             "prediction": lab,
             "confidence": round(conf * 100, 2),
             "confidence_score": conf,
+            "probs": probs_percent,
+            "labels": class_labels
+        }
+
+        # store as last_prediction (so /ask can use it even if frontend forgot to send)
+        set_last_prediction(prediction)
+
+        # Auto-generate medical summary (try Gemini, fallback to templated)
+        try:
+            summary_text = generate_medical_summary(prediction)
+        except Exception:
+            logger.exception("Summary generation failed")
+            summary_text = ""
+
+        return jsonify({
+            "prediction": prediction,
+            "summary": summary_text,
+            # backward compatibility for frontend
+            "predicted_index": idx,
+            "predicted_class": lab,
+            "confidence": round(conf * 100, 2),
             "probs": probs_percent,
             "labels": class_labels
         })
@@ -274,168 +448,169 @@ def predict():
 @app.route("/ask", methods=["POST"])
 def ask():
     """
-    Accepts:
-      - multipart/form-data with 'file' (image) and optional 'message' -> server runs prediction then calls Gemini
-      - JSON with {"message": "...", "prediction": {...}} where prediction can be result from /predict
-    Behavior:
-      - If an image is provided and validated as colon image, allow broad questions about that case (e.g., "jelaskan hasil analisis")
-      - If no image provided, restrict questions to colon-related topics only (keyword-based), unless a prediction object is provided
+    Chat endpoint:
+    - Accepts JSON { message, prediction? , summary? } OR multipart with file + form message.
+    - If prediction not provided, will use last server-side prediction if available.
+    - If neither prediction nor last prediction exists, will require colon-related keywords.
+    - Attempts to call Gemini when available; otherwise uses fallback answer generation.
     """
     try:
-        message = ""
-        prediction = None
-        image_validated = False
-
-        # If an image file was uploaded, handle it (and run local prediction)
-        if request.files and "file" in request.files:
-            file = request.files["file"]
-            if not file or file.filename == "":
-                return jsonify({"error": "Nama file kosong"}), 400
-            filename = secure_filename(file.filename)
-            upload_folder = "uploads"
-            os.makedirs(upload_folder, exist_ok=True)
-            path = os.path.join(upload_folder, filename)
-            file.save(path)
-            # pre-filter
-            if not is_colon_image(path):
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
-                return jsonify({"error": "Gambar tidak dikenali sebagai citra colonoscopy."}), 400
-            # run prediction
-            try:
-                idx, lab, conf, probs = predict_image(path)
-                # remove file
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
-                # confidence check
-                if conf < 0.25:
-                    return jsonify({"error": "Model tidak cukup yakin pada gambar ini."}), 400
-                prediction = {
-                    "predicted_index": idx,
-                    "predicted_class": lab,
-                    "prediction": lab,
-                    "confidence": round(conf * 100, 2),
-                    "confidence_score": conf,
-                    "probs": [round(float(p) * 100, 2) for p in probs],
-                    "labels": class_labels
-                }
-                image_validated = True
-            except Exception as e:
-                try:
-                    os.remove(path)
-                except Exception:
-                    pass
-                logger.exception("Local prediction failed in /ask")
-                prediction = {"error": str(e)}
-            # user message may be provided in form
-            message = (request.form.get("message") or "").strip()
-        else:
-            # JSON mode: message + optional prediction object
+        # accept both JSON and form-data
+        if request.content_type and "application/json" in request.content_type:
             data = request.get_json(silent=True) or {}
             message = (data.get("message") or "").strip()
             raw_pred = data.get("prediction")
+            incoming_summary = data.get("summary")
             if raw_pred:
-                prediction = safe_extract_prediction(raw_pred)
+                extracted = safe_extract_prediction(raw_pred)
+                if extracted:
+                    if incoming_summary:
+                        extracted["summary"] = incoming_summary
+                    prediction = extracted
+                    set_last_prediction(prediction)
+                else:
+                    prediction = None
+            else:
+                prediction = None
+        else:
+            # multipart/form-data path (maybe with uploaded file)
+            prediction = None
+            message = ""
+            if request.files and "file" in request.files:
+                file = request.files["file"]
+                if file and file.filename:
+                    filename = secure_filename(file.filename)
+                    upload_folder = "uploads"
+                    os.makedirs(upload_folder, exist_ok=True)
+                    path = os.path.join(upload_folder, filename)
+                    file.save(path)
+                    try:
+                        if not is_colon_image(path):
+                            try:
+                                os.remove(path)
+                            except Exception:
+                                pass
+                            return jsonify({"error": "Gambar tidak dikenali sebagai citra colonoscopy."}), 400
+                        idx, lab, conf, probs = predict_image(path)
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
+                        if conf < 0.25:
+                            return jsonify({"error": "Model tidak cukup yakin pada gambar ini."}), 400
+                        prediction = {
+                            "predicted_index": idx,
+                            "predicted_class": lab,
+                            "prediction": lab,
+                            "confidence": round(conf * 100, 2),
+                            "confidence_score": conf,
+                            "probs": [round(float(p) * 100, 2) for p in probs],
+                            "labels": class_labels
+                        }
+                        set_last_prediction(prediction)
+                    except Exception as err:
+                        try:
+                            os.remove(path)
+                        except Exception:
+                            pass
+                        logger.exception("Local prediction failed in /ask")
+                        return jsonify({"error": "Local prediction failed", "details": str(err)}), 500
+            message = (request.form.get("message") or "").strip()
 
-        # If there's no image validated AND the message is not colon-related AND no prediction -> reject
+        # If no prediction in payload, use last server-side prediction
+        if not locals().get("prediction"):
+            prediction = get_last_prediction()
+
+        # validation and allowed keywords
         allowed_keywords = [
             "colon", "colonoscopy", "polyp", "ulcer", "ulcerative colitis",
             "colitis", "rectum", "digestive", "crohn", "colorectal", "colon cancer", "bowel"
         ]
+        followup_keywords = [
+            "jelaskan", "artinya", "penjelasan", "apa maksudnya",
+            "lanjutkan", "detailkan", "interpretasi", "analisis", "hasil", "penyakit ini", "kasus ini", "dampak", "resiko", "risiko"
+        ]
 
-        if not image_validated:
-            # If no message and no prediction -> nothing to act on
-            if not message and not prediction:
-                return jsonify({"error": "No message or validated image provided."}), 400
-            # If there is a prediction object (from /predict), allow general analysis questions like "jelaskan hasil analisis"
-            if not prediction:
-                lower_msg = message.lower()
-                if not any(k in lower_msg for k in allowed_keywords):
-                    return jsonify({"reply": "Maaf, saya hanya dapat menjawab pertanyaan terkait colon disease atau hasil colonoscopy.", "prediction": prediction})
+        if not prediction:
+            # no context — require colon-related question
+            if not message:
+                return jsonify({"error": "No message or prediction available."}), 400
+            lower_msg = message.lower()
+            if not any(k in lower_msg for k in allowed_keywords + followup_keywords):
+                return jsonify({"reply": "Maaf, saya hanya dapat menjawab pertanyaan terkait hasil colonoscopy atau penyakit kolon."}), 400
 
-        # Build user prompt. If prediction exists, include structured prediction block.
+        # Build user prompt/context
         if prediction:
-            # Build probability breakdown if available
-            prob_block = "No detailed probability breakdown available."
+            labels = prediction.get("labels") or class_labels
+            probs = prediction.get("probs") or []
             try:
-                labels = prediction.get("labels") or class_labels
-                probs = prediction.get("probs") or []
-                if isinstance(labels, list) and isinstance(probs, list) and len(labels) == len(probs):
-                    prob_lines = [f"- {lab}: {p}%" for lab, p in zip(labels, probs)]
-                    prob_block = "\n".join(prob_lines)
-                else:
-                    prob_block = str(probs)
+                prob_lines = "\n".join([f"- {labels[i]}: {probs[i]}%" for i in range(len(labels))])
             except Exception:
-                prob_block = str(prediction.get("probs"))
-
-            user_prompt = f"""CASE DATA:
-Predicted Condition: {prediction.get('predicted_class') or prediction.get('class') or '-'}
-Confidence: {prediction.get('confidence') or prediction.get('confidence_score') or '-'}%
+                prob_lines = str(probs)
+            summary_block = prediction.get("summary", "")
+            case_block = f"""Predicted Condition: {prediction.get('predicted_class') or '-'}
+Confidence: {prediction.get('confidence') or '-'}%
 Probability Breakdown:
-{prob_block}
+{prob_lines}
 
-USER QUESTION:
-{message if message else '(no extra question; give a full analysis)'}
+Existing AI Summary:
+{summary_block}
 """
+            user_prompt = f"{case_block}\nUser question: {message}\n"
         else:
-            user_prompt = f"USER QUESTION:\n{message}\n"
+            user_prompt = f"User question: {message}\n"
 
-        # Initialize Gemini client if needed
-        global client
-        if not client:
-            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            if key:
-                client = init_gemini_client(key)
-
-        if not client:
-            return jsonify({"reply": "Gemini client tidak dikonfigurasi pada server. Silakan set GEMINI_API_KEY." , "prediction": prediction}), 503
-
-        # System instruction aimed at producing MEDICAL COMPLEX structured output (Medis Lengkap)
+        # Setup Gemini prompt for short Q/A (don't force full 6-section unless requested)
         system_instruction = (
-            "You are a careful, professional medical assistant specialized in colonoscopy image interpretation. "
-            "You MUST follow this output structure exactly, and you are ONLY allowed to discuss colon diseases, colonoscopy findings, "
-            "and related colorectal conditions. If asked about any unrelated topics, politely refuse. "
-            "You must NOT provide a definitive diagnosis — always use probabilistic language and include a clear disclaimer. "
-            "Produce a structured, detailed medical-style response with these sections, and ALWAYS answer in Indonesian:\n\n"
-            "1) AI Analysis Summary: concise bullets of the main findings.\n"
-            "2) Probabilistic Interpretation: list candidate conditions with probabilities matching the prediction input when available.\n"
-            "3) Clinical Relevance & Possible Causes: short explanation.\n"
-            "4) Recommended Next Steps: numbered clinical recommendations (investigations, biopsy, referral, immediate actions).\n"
-            "5) Practical Patient Advice: brief patient-facing advice if appropriate.\n"
-            "6) Limitations & Disclaimer: clearly state this is not a final diagnosis and recommend consultation with a clinician.\n\n"
-            "Keep language clear and suitable for clinicians; also include a brief patient-friendly summary at the top (one or two lines)."
+            "You are a professional medical assistant specialized in colonoscopy interpretation and colon diseases. "
+            "Answer in Indonesian. Use conditional language and do NOT provide definitive diagnosis. "
+            "If the user asks for a full formal report, produce the 6-section 'Medis Lengkap' format. "
+            "Otherwise answer the user's question directly and concisely for clinicians and provide a short patient-friendly note if relevant."
         )
+        combined_prompt_text = f"System: {system_instruction}\n\nContext:\n{user_prompt}"
 
-        # Build combined prompt content for Gemini
-        combined_prompt_text = f"System: {system_instruction}\n\nUser: {user_prompt}"
-
-        # Try available models (best-effort)
-        preferred_models = ["models/gemini-2.5-flash", "models/gemini-2.0-flash", "models/gemini-1.5"]
-        response_obj = None
-        last_exc = None
-        for m in preferred_models:
+        # Try to ensure client is initialized
+        global client
+        if not client and (GEMINI_API_KEY := os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
             try:
-                # different SDKs may accept different call patterns, keep consistent with earlier usage
-                response_obj = client.models.generate_content(
-                    model=m,
-                    contents=[{"role": "user", "parts": [{"text": combined_prompt_text}]}],
-                )
-                break
-            except Exception as e:
-                logger.warning("Model %s failed: %s", m, str(e))
-                last_exc = e
-                continue
+                client = init_gemini_client(GEMINI_API_KEY)
+            except Exception:
+                client = None
+
+        # If no Gemini client, return a contextual fallback (not just the summary)
+        if not client:
+            # generate fallback answer focusing on user's question
+            fallback_answer = generate_contextual_fallback(prediction, message)
+            return jsonify({"reply": fallback_answer, "prediction": prediction})
+
+        # Call Gemini (guarded)
+        preferred_model = "models/gemini-2.5-flash"
+
+        try:
+            import time
+            time.sleep(1.2)   # anti-429
+
+            response_obj = client.models.generate_content(
+                model=preferred_model,
+                contents=[{"role": "user", "parts": [{"text": combined_prompt_text}]}],
+            )
+
+        except Exception as e:
+            logger.warning("Gemini failed: %s", str(e))
+            fallback_answer = generate_contextual_fallback(prediction, message)
+            fallback_answer += "\n\nCatatan: Gemini API gagal merespons; ini adalah jawaban fallback."
+            return jsonify({"reply": fallback_answer, "prediction": prediction})
+
 
         if response_obj is None:
-            logger.exception("All Gemini attempts failed: %s", str(last_exc))
-            return jsonify({"error": "Gemini API call failed", "details": str(last_exc)}), 502
+            logger.exception("All Gemini attempts failed for /ask: %s", str(last_exc))
+            fallback_answer = generate_contextual_fallback(prediction, message)
+            fallback_answer += "\n\nCatatan: Gemini API gagal merespons; ini adalah jawaban fallback."
+            return jsonify({"reply": fallback_answer, "prediction": prediction}), 200
 
         reply_text = extract_text_from_genai_response(response_obj)
-        # return reply plus prediction (if any)
+        if not reply_text or len(reply_text.strip()) == 0:
+            reply_text = generate_contextual_fallback(prediction, message)
         return jsonify({"reply": reply_text, "prediction": prediction})
 
     except Exception as e:
@@ -443,9 +618,49 @@ USER QUESTION:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
 
+def generate_contextual_fallback(prediction, message):
+    """
+    Produce a fallback answer that addresses the user's question using
+    the available prediction context (instead of reprinting the whole summary).
+    This ensures that when Gemini fails, the user still gets a helpful reply.
+    """
+    if not prediction:
+        return "Gemini tidak tersedia dan tidak ada konteks prediksi. Mohon jalankan analisis gambar terlebih dahulu."
+
+    label = prediction.get("predicted_class", "-")
+    conf = prediction.get("confidence", "-")
+    probs = prediction.get("probs", [])[:4]
+    # Simple rule-based answers for common question types (dampak, langkah, risiko)
+    q = (message or "").lower()
+    if any(k in q for k in ("dampak", "pengaruh", "efek", "konsekuensi")):
+        return (
+            f"Berdasarkan temuan ({label}, confidence {conf}%), dampak klinis yang mungkin:\n"
+            "• Gejala: diare, nyeri perut, perdarahan rektal, demam pada beberapa kasus.\n"
+            "• Komplikasi: anemia, abses, perforasi (jarang), dan risiko neoplasia jangka panjang jika inflamasi kronis.\n"
+            "Rekomendasi: konsultasi gastroenterolog untuk evaluasi lebih lanjut dan pertimbangkan biopsi atau pemeriksaan histopatologi."
+        )
+    if any(k in q for k in ("langkah", "selanjutnya", "apa yang harus")):
+        return (
+            "Langkah rekomendasi singkat:\n"
+            "1) Konsultasi gastroenterologi segera.\n"
+            "2) Jika lesi terlihat mencurigakan: pertimbangkan biopsy atau polypektomi.\n"
+            "3) Pemeriksaan lanjutan (CT, kolonoskopi lanjutan) sesuai indikasi.\n"
+            "4) Kirim spesimen untuk histopatologi bila diangkat."
+        )
+    if any(k in q for k in ("risiko", "resiko", "komplikasi")):
+        return (
+            "Risiko yang mungkin terkait kondisi ini termasuk perdarahan, obstruksi jika lesi besar, dan peningkatan risiko neoplasia pada peradangan kronis. Penilaian klinis dan histopatologi diperlukan."
+        )
+    # Default fallback: brief explanation + advise
+    return (
+        f"Temuan utama: {label} (confidence {conf}%).\n"
+        "Secara singkat: kondisi ini menunjukkan adanya perubahan mukosa/lesi yang perlu evaluasi klinis dan histologis lebih lanjut.\n"
+        "Rekomendasi: konsultasikan ke gastroenterolog untuk rencana tindakan (biopsi/pengawasan)."
+    )
+
+
 @app.route("/download_report", methods=["POST"])
 def download_report():
-    """Generate PDF report using ReportLab. Accepts JSON with keys: prediction, aiSummary, geminiReply, imageData (data URL), metadata."""
     try:
         data = request.get_json(force=True) or {}
     except Exception:
@@ -457,114 +672,100 @@ def download_report():
     metadata = data.get('metadata') or {}
     image_data = data.get('imageData')
 
+    ### --- PREPARE PDF BUFFER ---
     buf = io.BytesIO()
-    try:
-        c = canvas.Canvas(buf, pagesize=A4)
-        width, height = A4
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=40,
+        rightMargin=40,
+        topMargin=40,
+        bottomMargin=40
+    )
 
-        # Header
-        c.setFont('Helvetica-Bold', 16)
-        c.drawString(30, height - 40, 'ColonAI — Analysis Report')
-        c.setFont('Helvetica', 9)
-        c.drawString(30, height - 56, f'Generated: {datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")}')
+    elements = []
+    styles = getSampleStyleSheet()
+    normal = styles["Normal"]
+    normal.fontSize = 10
+    normal.leading = 14
 
-        y = height - 80
+    header = Paragraph("<b>ColonAI — Analysis Report</b>", styles["Title"])
+    elements.append(header)
+    elements.append(Spacer(1, 12))
 
-        # Metadata table
-        if metadata:
-            c.setFont('Helvetica-Bold', 12)
-            c.drawString(30, y, 'Case Metadata')
-            y -= 18
-            c.setFont('Helvetica', 9)
-            for k, v in metadata.items():
-                c.drawString(36, y, f'{k}: {v}')
-                y -= 14
-            y -= 8
+    generated = Paragraph(
+        f"<font size=9>Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</font>",
+        normal
+    )
+    elements.append(generated)
+    elements.append(Spacer(1, 12))
 
-        # Image
-        if image_data and isinstance(image_data, str) and image_data.startswith('data:'):
-            try:
-                header, b64 = image_data.split(',', 1)
-                img_bytes = base64.b64decode(b64)
-                img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
-                max_w = width - 60
-                max_h = (height / 2)
-                iw, ih = img.size
-                scale = min(max_w / iw, max_h / ih, 1.0)
-                iw2 = int(iw * scale)
-                ih2 = int(ih * scale)
-                img = img.resize((iw2, ih2))
-                ir = ImageReader(img)
-                c.drawImage(ir, 30, y - ih2, width=iw2, height=ih2)
-                y = y - ih2 - 12
-            except Exception:
-                logger.exception('Failed to embed image in PDF')
+    ### --- METADATA ---
+    if metadata:
+        elements.append(Paragraph("<b>Case Metadata</b>", styles["Heading3"]))
+        for k, v in metadata.items():
+            elements.append(Paragraph(f"{k}: {v}", normal))
+        elements.append(Spacer(1, 12))
 
-        # Prediction
-        c.setFont('Helvetica-Bold', 12)
-        c.drawString(30, y, 'Model Prediction')
-        y -= 18
-        c.setFont('Helvetica', 10)
-        pred_label = prediction.get('predicted') or prediction.get('predicted_class') or prediction.get('class') or '-'
-        pred_conf = prediction.get('confidence') or prediction.get('confidence_score') or '-'
-        c.drawString(36, y, f'Predicted: {pred_label}')
-        y -= 14
-        c.drawString(36, y, f'Confidence: {pred_conf}')
-        y -= 18
+    ### --- IMAGE HANDLING ---
+    if image_data and isinstance(image_data, str) and image_data.startswith("data:"):
+        try:
+            header, b64 = image_data.split(",", 1)
+            img_bytes = base64.b64decode(b64)
+            tmp = io.BytesIO(img_bytes)
+            img = RLImage(tmp)
 
-        probs = prediction.get('probs') or []
-        labels = prediction.get('labels') or []
-        if isinstance(probs, list) and probs:
-            c.setFont('Helvetica-Bold', 11)
-            c.drawString(30, y, 'Probability Breakdown')
-            y -= 16
-            c.setFont('Helvetica', 9)
-            for i, p in enumerate(probs):
-                lab = labels[i] if i < len(labels) else f'Class {i}'
-                c.drawString(36, y, f'{lab}: {p}%')
-                y -= 12
-            y -= 8
+            img._restrictSize(6*inch, 4*inch)
+            elements.append(img)
+            elements.append(Spacer(1, 12))
+        except Exception as e:
+            logger.exception("Failed to embed image")
 
-        # AI summary
-        if ai_summary:
-            c.setFont('Helvetica-Bold', 12)
-            c.drawString(30, y, 'AI Summary')
-            y -= 16
-            c.setFont('Helvetica', 10)
-            text = c.beginText(36, y)
-            for line in str(ai_summary).split('\n'):
-                text.textLine(line)
-                y -= 12
-            c.drawText(text)
-            y -= 8
+    ### --- MODEL PREDICTION ---
+    pred_label = prediction.get('predicted') or prediction.get('predicted_class') or '-'
+    pred_conf = prediction.get('confidence') or prediction.get('confidence_score') or '-'
 
-        # Gemini reply
-        if gemini_reply:
-            c.setFont('Helvetica-Bold', 12)
-            c.drawString(30, y, 'Assistant Reply')
-            y -= 16
-            c.setFont('Helvetica', 10)
-            text = c.beginText(36, y)
-            for line in str(gemini_reply).split('\n'):
-                text.textLine(line)
-                y -= 12
-            c.drawText(text)
-            y -= 8
+    elements.append(Paragraph("<b>Model Prediction</b>", styles["Heading3"]))
+    elements.append(Paragraph(f"Predicted: {pred_label}", normal))
+    elements.append(Paragraph(f"Confidence: {pred_conf}", normal))
+    elements.append(Spacer(1, 12))
 
-        # Disclaimer
-        c.setFont('Helvetica', 8)
-        disclaimer = 'Disclaimer: This report is generated by an AI tool and is not a final clinical diagnosis. Consult a qualified clinician.'
-        c.drawString(30, 40, disclaimer)
+    ### --- PROBABILITY BREAKDOWN ---
+    probs = prediction.get("probs") or []
+    labels = prediction.get("labels") or []
 
-        c.showPage()
-        c.save()
-        buf.seek(0)
-        fname = f'colonai_report_{datetime.utcnow().strftime("%Y%m%d_%H%M%S")}.pdf'
-        return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=fname)
+    if probs:
+        elements.append(Paragraph("<b>Probability Breakdown</b>", styles["Heading3"]))
+        for i, p in enumerate(probs):
+            label = labels[i] if i < len(labels) else f"Class {i}"
+            elements.append(Paragraph(f"{label}: {p}%", normal))
+        elements.append(Spacer(1, 12))
 
-    except Exception as e:
-        logger.exception('Failed to generate report (ReportLab): %s', str(e))
-        return jsonify({'error': 'Failed to generate PDF (ReportLab)', 'details': str(e), 'trace': traceback.format_exc()}), 500
+    ### --- AI SUMMARY ---
+    if ai_summary:
+        elements.append(Paragraph("<b>AI Summary</b>", styles["Heading3"]))
+        elements.append(Paragraph(ai_summary.replace("\n", "<br/>"), normal))
+        elements.append(Spacer(1, 12))
+
+    ### --- ASSISTANT (GEMINI) REPLY ---
+    if gemini_reply:
+        elements.append(Paragraph("<b>Assistant Reply</b>", styles["Heading3"]))
+        elements.append(Paragraph(gemini_reply.replace("\n", "<br/>"), normal))
+        elements.append(Spacer(1, 12))
+
+    ### --- DISCLAIMER (WRAPPED & SAFE) ---
+    disc = (
+        "Disclaimer: This report is generated by an AI tool and is not a final clinical "
+        "diagnosis. Consult a qualified clinician."
+    )
+    elements.append(Paragraph(f"<font size=8>{disc}</font>", normal))
+
+    ### --- BUILD PDF ---
+    doc.build(elements)
+    buf.seek(0)
+
+    fname = f"colonai_report_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=fname)
 
 
 if __name__ == "__main__":

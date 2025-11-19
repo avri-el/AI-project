@@ -1239,11 +1239,11 @@
         return;
       }
 
-      const labels = data.labels || [];
-      const probs = data.probs || [];
-      const pred = data.predicted_class;
-      const conf = Math.round(data.confidence);
-
+      // Accept both legacy and new response shapes
+      const labels = (data.prediction && data.prediction.labels) || data.labels || [];
+      const probs = (data.prediction && data.prediction.probs) || data.probs || [];
+      const pred = (data.prediction && data.prediction.predicted_class) || data.predicted_class || (labels[0] || "-");
+      const conf = Math.round((data.prediction && data.prediction.confidence) || data.confidence || 0);
 
       lastAnalysisResult = {
         labels,
@@ -1252,16 +1252,23 @@
         confidence: conf,
       };
 
-      aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(
-        pred
-      )}</span>.<br><strong>Confidence:</strong> ${conf}%`;
+      // If server returned an auto summary, display that instead of simplified box
+      if (data.summary) {
+        // show the structured summary in the AI summary panel
+        aiSummary.innerHTML = escapeHtml(data.summary).replace(/\n/g, "<br>");
+      } else {
+        aiSummary.innerHTML = `<strong>Findings:</strong> <span>${escapeHtml(
+          pred
+        )}</span>.<br><strong>Confidence:</strong> ${conf}%`;
+      }
+
       lastAnalysisEl.textContent = new Date().toLocaleString();
 
       const probContainer = document.querySelector(".prob-list");
       probContainer.innerHTML = "";
 
       labels.forEach((label, i) => {
-        const pct = probs[i];
+        const pct = probs[i] || 0;
 
         const item = document.createElement("div");
         item.className = "prob-item";
@@ -1392,6 +1399,7 @@
   });
 
 })();
+
 </script>
 
 
