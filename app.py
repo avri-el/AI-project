@@ -288,6 +288,7 @@ def generate_medical_summary(prediction):
     """
     Generate a structured 'Medis Lengkap' summary for the given prediction.
     Tries Gemini first; on failure returns a templated fallback summary.
+    Uses 6-part structure for clinical clarity.
     """
     if not prediction or not isinstance(prediction, dict):
         return "Tidak ada data prediksi untuk menghasilkan ringkasan."
@@ -308,20 +309,27 @@ def generate_medical_summary(prediction):
     user_section = f"Predicted Condition: {pred_label}\nConfidence: {confidence}%\nProbability Breakdown:\n" + "\n".join(prob_lines)
 
     system_instruction = (
-        "You are a medical AI assistant specialized ONLY in colonoscopy interpretation and colon diseases. "
-        "Produce a structured MEDICAL REPORT in Indonesian with these sections:\n\n"
-        "PATIENT-FRIENDLY SUMMARY (1-2 lines)\n"
-        "1) AI Analysis Summary\n2) Probabilistic Interpretation\n3) Clinical Relevance & Possible Causes\n4) Recommended Next Steps\n5) Practical Patient Advice\n6) Limitations & Disclaimer\n\n"
-        "Use conditional language (mungkin, kemungkinan). Do NOT give definitive diagnoses."
+        "You are a MEDICAL AI ASSISTANT specialized STRICTLY in colonoscopy interpretation and colon diseases ONLY. "
+        "You MUST refuse to answer questions outside colonoscopy/colon diseases scope. "
+        "If asked about non-colon topics, respond: 'Maaf, saya hanya dapat menjawab pertanyaan terkait hasil colonoscopy atau penyakit kolon.'\n\n"
+        "Produce a structured MEDICAL REPORT in Indonesian with exactly these 6 sections:\n\n"
+        "1) AI ANALYSIS SUMMARY (1-2 sentences): Main finding concisely\n"
+        "2) PROBABILISTIC INTERPRETATION: Confidence level and probability breakdown\n"
+        "3) CLINICAL RELEVANCE & POSSIBLE CAUSES: What this might indicate clinically\n"
+        "4) RECOMMENDED NEXT STEPS: Follow-up actions (biopsy, repeat colonoscopy, specialist consult)\n"
+        "5) PRACTICAL PATIENT ADVICE: Patient-friendly guidance\n"
+        "6) LIMITATIONS & DISCLAIMER: AI limitations and need for clinical confirmation\n\n"
+        "Use conditional language (mungkin, kemungkinan). Do NOT give definitive medical diagnoses. "
+        "Keep explanations clear and professional. Always emphasize this is NOT a final diagnosis."
     )
 
-    prompt_text = f"System: {system_instruction}\n\nUser: Berikut data kasus:\n{user_section}\n\nTolong hasilkan laporan sesuai format di atas."
+    prompt_text = f"System: {system_instruction}\n\nUser: Berikut data kasus:\n{user_section}\n\nTolong hasilkan laporan sesuai format 6 bagian di atas."
 
     # Try Gemini
     global client
     if client:
         try:
-            preferred_models = ["models/gemini-2.5-flash"]
+            preferred_models = ["models/gemini-2.5-flash", "models/gemini-pro"]
             last_exc = None
             for m in preferred_models:
                 try:
@@ -340,7 +348,7 @@ def generate_medical_summary(prediction):
         except Exception:
             logger.exception("Exception while trying to generate summary with Gemini")
 
-    # fallback templated summary
+    # fallback templated summary with 6-part structure
     try:
         top = sorted(zip(probs, labels), reverse=True)[:len(labels)]
         prob_text = "\n".join([f"- {lab}: {p}%" for p, lab in top])
@@ -348,14 +356,23 @@ def generate_medical_summary(prediction):
         prob_text = str(probs)
 
     fallback = (
-        f"Patient Summary:\nTemuan utama: {pred_label} (Confidence {confidence}%).\n\n"
-        "1) AI Analysis Summary:\n"
-        f"• Temuan utama: {pred_label} (confidence {confidence}%).\n\n"
-        "2) Probabilistic Interpretation:\n" + prob_text + "\n\n"
-        "3) Clinical Relevance & Possible Causes:\n• Kemungkinan penyebab termasuk polip atau inflamasi tergantung konteks klinis.\n\n"
-        "4) Recommended Next Steps:\n1. Konsultasi gastroenterolog.\n2. Pertimbangkan biopsi atau polypektomi sesuai tampilan endoskopik.\n\n"
-        "5) Practical Patient Advice:\n• Hindari tindakan mandiri; konsultasikan ke dokter. Segera ke fasilitas kesehatan bila ada perdarahan berat atau nyeri hebat.\n\n"
-        "6) Limitations & Disclaimer:\nIni bukan diagnosis final. Hasil harus dikonfirmasi oleh dokter spesialis gastroenterologi."
+        f"1) AI ANALYSIS SUMMARY:\n"
+        f"Temuan utama: {pred_label} dengan confidence {confidence}%.\n\n"
+        f"2) PROBABILISTIC INTERPRETATION:\n"
+        f"Probability breakdown menunjukkan:\n{prob_text}\n\n"
+        f"3) CLINICAL RELEVANCE & POSSIBLE CAUSES:\n"
+        f"Kemungkinan penyebab termasuk polip, inflamasi, ulserasi, atau esofagitis tergantung konteks klinis dan aspek endoskopik.\n\n"
+        f"4) RECOMMENDED NEXT STEPS:\n"
+        f"1. Konsultasi gastroenterolog untuk evaluasi klinis.\n"
+        f"2. Pertimbangkan biopsi atau polypektomi sesuai tampilan dan indikasi klinis.\n"
+        f"3. Lakukan pemeriksaan histopatologi jika lesi diangkat.\n\n"
+        f"5) PRACTICAL PATIENT ADVICE:\n"
+        f"• Hindari tindakan mandiri; konsultasikan ke dokter spesialis.\n"
+        f"• Segera ke fasilitas kesehatan bila ada perdarahan berat atau nyeri hebat.\n"
+        f"• Ikuti instruksi dokter untuk follow-up.\n\n"
+        f"6) LIMITATIONS & DISCLAIMER:\n"
+        f"Ini adalah analisis AI dan BUKAN diagnosis final. Hasil harus dikonfirmasi dan diinterpretasi oleh dokter spesialis gastroenterologi. "
+        f"AI tidak dapat menggantikan penilaian klinis."
     )
     return fallback
 
@@ -542,8 +559,16 @@ Existing Summary:
         user_prompt = f"{ai_context}\nUser question: {message}"
 
         system_instruction = (
-            "You are a medical assistant specialized in colonoscopy. "
-            "Jawab singkat, jelas, dalam bahasa Indonesia, dan gunakan bahasa kondisional."
+            "You are a MEDICAL AI ASSISTANT specialized STRICTLY in colonoscopy interpretation and colon diseases ONLY. "
+            "You MUST refuse to answer questions outside colonoscopy/colon diseases scope. "
+            "If asked about non-colon topics (like general knowledge, programming, weather, etc.), respond EXACTLY: "
+            "'Maaf, saya hanya dapat menjawab pertanyaan terkait hasil colonoscopy atau penyakit kolon.'\n\n"
+            "When answering colon-related questions, use:\n"
+            "- Conditional language (mungkin, kemungkinan)\n"
+            "- Clear, professional medical terminology\n"
+            "- Patient-friendly explanations\n"
+            "- Always emphasize this is NOT a final diagnosis—clinical confirmation required.\n\n"
+            "Keep responses concise, accurate, and evidence-based."
         )
 
         final_prompt = f"System: {system_instruction}\n\n{user_prompt}"

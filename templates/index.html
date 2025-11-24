@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>ColonAI — Demo UI</title>
+    <title>ColonAI &mdash; Demo UI</title>
 
     <!-- Fonts -->
     <link
@@ -13,20 +13,25 @@
 
     <style>
       :root {
-        --bg: #06070a; /* deep black */
-        --nav: #0f1724; /* navy/charcoal */
-        --card: #0b0d12; /* card background */
-        --muted: #9aa4b2;
-        --accent: #08a7ff; /* neon cyan */
-        --accent-2: #4fc3ff;
-        --glass: rgba(255, 255, 255, 0.04);
-        --glow: 0 6px 30px rgba(8, 167, 255, 0.08),
-          inset 0 0 18px rgba(8, 167, 255, 0.03);
-        --soft-radius: 12px;
-        --radius-lg: 18px;
-        --shadow-sm: 0 6px 18px rgba(2, 6, 23, 0.6);
-        --mono: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial;
+        --bg: #0a0e1a;
+        --bg-alt: #050810;
+        --nav: #0f1724;
+        --card: #0d1117;
+        --card-hover: #131820;
+        --muted: #7a8592;
+        --accent: #00d9ff;
+        --accent-2: #00f0ff;
+        --accent-3: #0080ff;
+        --glass: rgba(255, 255, 255, 0.05);
+        --glass-hover: rgba(255, 255, 255, 0.08);
+        --glow: 0 0 30px rgba(0, 217, 255, 0.3), 0 0 60px rgba(0, 217, 255, 0.15);
+        --glow-lg: 0 0 50px rgba(0, 217, 255, 0.4);
+        --shadow-sm: 0 10px 30px rgba(0, 0, 0, 0.8);
+        --shadow-md: 0 20px 60px rgba(0, 0, 0, 0.9);
+        --shadow-lg: 0 30px 90px rgba(0, 0, 0, 0.95);
+        --soft-radius: 14px;
+        --radius-lg: 20px;
+        --mono: "Inter", system-ui, -apple-system, "Segoe UI", Roboto;
       }
 
       * {
@@ -39,12 +44,39 @@
       body {
         margin: 0;
         font-family: var(--mono);
-        background: linear-gradient(180deg, var(--bg) 0%, #081025 60%);
-        color: #dbe7f5;
+        background: linear-gradient(135deg, var(--bg-alt) 0%, #0f1b2e 50%, var(--bg) 100%);
+        background-attachment: fixed;
+        color: #e8f0ff;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        /* allow scrolling so panels can overflow on smaller screens */
         overflow: auto;
+        position: relative;
+      }
+      
+      body::before {
+        content: '';
+        position: fixed;
+        top: -50%;
+        left: -10%;
+        width: 600px;
+        height: 600px;
+        background: radial-gradient(circle, rgba(0, 217, 255, 0.1) 0%, transparent 70%);
+        border-radius: 50%;
+        z-index: -2;
+        pointer-events: none;
+      }
+      
+      body::after {
+        content: '';
+        position: fixed;
+        bottom: -30%;
+        right: -5%;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(circle, rgba(0, 128, 255, 0.08) 0%, transparent 70%);
+        border-radius: 50%;
+        z-index: -2;
+        pointer-events: none;
       }
 
       /* App layout */
@@ -64,16 +96,17 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 18px;
-        background: linear-gradient(
-          90deg,
-          rgba(255, 255, 255, 0.02),
-          rgba(255, 255, 255, 0.01)
-        );
-        border-radius: 16px;
-        box-shadow: var(--shadow-sm);
-        border: 1px solid rgba(127, 140, 160, 0.04);
-        backdrop-filter: blur(6px);
+        padding: 0 24px;
+        background: linear-gradient(90deg, rgba(13, 17, 23, 0.6), rgba(13, 17, 23, 0.4));
+        border-radius: 20px;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(0, 217, 255, 0.15);
+        backdrop-filter: blur(20px) saturate(180%);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .topbar:hover {
+        border-color: rgba(0, 217, 255, 0.3);
+        box-shadow: 0 0 60px rgba(0, 217, 255, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.08);
       }
       .brand {
         display: flex;
@@ -81,23 +114,38 @@
         gap: 12px;
       }
       .logo {
-        width: 44px;
-        height: 44px;
-        border-radius: 10px;
-        background: linear-gradient(135deg, #071020, #0b1830);
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.2), rgba(0, 128, 255, 0.1));
         display: flex;
         align-items: center;
         justify-content: center;
-        box-shadow: var(--glow);
-        border: 1px solid rgba(71, 146, 255, 0.06);
+        box-shadow: 0 0 30px rgba(0, 217, 255, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(0, 217, 255, 0.3);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .logo:hover {
+        box-shadow: 0 0 50px rgba(0, 217, 255, 0.5), inset 0 1px 2px rgba(255, 255, 255, 0.2);
+        border-color: rgba(0, 217, 255, 0.5);
+        transform: translateY(-2px) scale(1.05);
       }
       .logo svg {
-        filter: drop-shadow(0 6px 18px rgba(8, 167, 255, 0.08));
+        filter: drop-shadow(0 0 15px rgba(0, 217, 255, 0.4));
+        transition: filter 0.3s ease;
+      }
+      .logo:hover svg {
+        filter: drop-shadow(0 0 25px rgba(0, 217, 255, 0.6));
       }
       .brand .title {
         font-weight: 700;
         font-family: "Poppins", var(--mono);
-        letter-spacing: 0.2px;
+        letter-spacing: -0.5px;
+        font-size: 18px;
+        background: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
       }
       .top-actions {
         display: flex;
@@ -120,31 +168,68 @@
         object-fit: cover;
       }
 
+      .small-btn {
+        padding: 8px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(0, 217, 255, 0.2);
+        background: rgba(13, 17, 23, 0.6);
+        color: var(--muted);
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        font-size: 12px;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
+      }
+
+      .small-btn:hover {
+        color: var(--accent);
+        border-color: rgba(0, 217, 255, 0.4);
+        background: rgba(0, 217, 255, 0.08);
+        box-shadow: 0 0 20px rgba(0, 217, 255, 0.2);
+        transform: translateY(-2px);
+      }
+
       .small-btn.primary {
-        background: #083a87;
-        color: white;
+        background: linear-gradient(135deg, var(--accent), var(--accent-3));
+        color: #04202e;
+        border-color: rgba(0, 217, 255, 0.3);
+        box-shadow: 0 0 25px rgba(0, 217, 255, 0.25);
+      }
+
+      .small-btn.primary:hover {
+        box-shadow: 0 0 40px rgba(0, 217, 255, 0.4);
+        transform: translateY(-2px) scale(1.05);
       }
 
       .small-btn.danger {
-        background: #3d0c12;
-        color: white;
+        background: rgba(255, 23, 68, 0.1);
+        color: #ff4081;
+        border-color: rgba(255, 23, 68, 0.2);
+      }
+
+      .small-btn.danger:hover {
+        background: rgba(255, 23, 68, 0.2);
+        border-color: rgba(255, 23, 68, 0.4);
+        box-shadow: 0 0 20px rgba(255, 23, 68, 0.2);
       }
 
 
       /* Sidebar */
       .sidebar {
-        background: linear-gradient(
-          180deg,
-          rgba(255, 255, 255, 0.015),
-          rgba(255, 255, 255, 0.01)
-        );
+        background: linear-gradient(180deg, rgba(13, 17, 23, 0.5), rgba(13, 17, 23, 0.3));
         border-radius: var(--radius-lg);
-        padding: 18px;
-        box-shadow: var(--shadow-sm);
+        padding: 24px 18px;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.04);
         display: flex;
         flex-direction: column;
         gap: 18px;
-        border: 1px solid rgba(127, 140, 160, 0.03);
+        border: 1px solid rgba(0, 217, 255, 0.1);
+        backdrop-filter: blur(20px);
+        transition: all 0.3s ease;
+      }
+      .sidebar:hover {
+        border-color: rgba(0, 217, 255, 0.15);
+        box-shadow: 0 0 60px rgba(0, 217, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.06);
       }
       .nav-list {
         display: flex;
@@ -155,29 +240,36 @@
         display: flex;
         align-items: center;
         gap: 14px;
-        padding: 10px;
+        padding: 12px 14px;
         border-radius: 12px;
         color: var(--muted);
         cursor: pointer;
-        transition: all 0.18s ease;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         position: relative;
-        overflow: visible;
+        overflow: hidden;
       }
-      .nav-item svg {
-        width: 18px;
-        height: 18px;
-        flex-shrink: 0;
+      
+      .nav-item::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, rgba(0, 217, 255, 0.1), transparent);
+        opacity: 0;
+        transition: opacity 0.3s ease;
       }
+      
       .nav-item:hover,
       .nav-item.active {
         color: var(--accent);
-        background: linear-gradient(
-          90deg,
-          rgba(8, 167, 255, 0.03),
-          rgba(79, 195, 255, 0.02)
-        );
-        box-shadow: 0 8px 26px rgba(8, 167, 255, 0.04);
-        transform: translateY(-2px);
+        background: linear-gradient(90deg, rgba(0, 217, 255, 0.08), rgba(0, 128, 255, 0.04));
+        box-shadow: 0 0 30px rgba(0, 217, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        transform: translateX(4px);
+        border: 1px solid rgba(0, 217, 255, 0.2);
+      }
+      
+      .nav-item:hover::before,
+      .nav-item.active::before {
+        opacity: 1;
       }
       .nav-item .label {
         font-weight: 600;
@@ -190,37 +282,32 @@
 
       /* Main panels */
       .upload-area {
-        padding: 18px;
+        padding: 24px;
         border-radius: var(--soft-radius);
-        background: linear-gradient(
-          180deg,
-          rgba(255, 255, 255, 0.01),
-          rgba(255, 255, 255, 0.007)
-        );
-        border: 1px solid rgba(255, 255, 255, 0.02);
+        background: linear-gradient(135deg, rgba(13, 17, 23, 0.5), rgba(13, 17, 23, 0.3));
+        border: 1px solid rgba(0, 217, 255, 0.1);
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 16px;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.04);
+        backdrop-filter: blur(20px);
       }
       .dropzone {
         flex: 1;
         min-height: 420px;
-        border-radius: 12px;
-        border: 2px dashed rgba(255, 255, 255, 0.03);
+        border-radius: 16px;
+        border: 2px dashed rgba(0, 217, 255, 0.2);
         display: flex;
         align-items: center;
         justify-content: center;
-        background: repeating-linear-gradient(
-          135deg,
-          rgba(255, 255, 255, 0.005) 0 2px,
-          transparent 2px 8px
-        );
+        background: radial-gradient(circle at center, rgba(0, 217, 255, 0.02) 0%, transparent 70%);
         position: relative;
-        transition: all 0.18s ease;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
       .dropzone.hover {
-        border-color: rgba(8, 167, 255, 0.22);
-        box-shadow: 0 20px 50px rgba(8, 167, 255, 0.04);
+        border-color: rgba(0, 217, 255, 0.5);
+        box-shadow: 0 0 60px rgba(0, 217, 255, 0.3), inset 0 0 30px rgba(0, 217, 255, 0.05);
+        background: radial-gradient(circle at center, rgba(0, 217, 255, 0.08) 0%, transparent 70%);
       }
       .drop-content {
         text-align: center;
@@ -234,20 +321,42 @@
       }
       .btn {
         display: inline-block;
-        padding: 10px 16px;
-        border-radius: 10px;
+        padding: 10px 18px;
+        border-radius: 12px;
         background: transparent;
-        border: 1px solid rgba(8, 167, 255, 0.14);
+        border: 1px solid rgba(0, 217, 255, 0.3);
         font-weight: 600;
         color: var(--accent);
         cursor: pointer;
         margin-top: 8px;
-        transition: transform 0.12s ease, box-shadow 0.12s ease;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
       }
+      
+      .btn::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, rgba(0, 217, 255, 0.1), rgba(0, 128, 255, 0.05));
+        transition: left 0.3s ease;
+        z-index: 0;
+      }
+      
       .btn:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 12px 34px rgba(8, 167, 255, 0.06);
+        transform: translateY(-2px);
+        box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
+        border-color: rgba(0, 217, 255, 0.5);
       }
+      
+      .btn:hover::before {
+        left: 100%;
+      }
+      
+      .btn span { position: relative; z-index: 1; }
 
       /* Image preview + overlay */
       .preview-wrap {
@@ -258,15 +367,16 @@
         flex-direction: column;
       }
       .viewer {
-        border-radius: 12px;
+        border-radius: 14px;
         overflow: hidden;
         flex: 1;
-        background: #05060a;
+        background: radial-gradient(circle at center, rgba(13, 17, 23, 0.8) 0%, rgba(5, 8, 16, 0.9) 100%);
         display: flex;
         align-items: center;
         justify-content: center;
         position: relative;
-        border: 1px solid rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(0, 217, 255, 0.1);
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.03);
       }
       .viewer img {
         max-width: 100%;
@@ -296,19 +406,21 @@
 
       /* Analysis summary (right column) */
       .summary {
-        padding: 18px;
+        padding: 24px;
         border-radius: var(--radius-lg);
-        background: linear-gradient(
-          180deg,
-          rgba(8, 14, 22, 0.7),
-          rgba(4, 8, 16, 0.5)
-        );
-        border: 1px solid rgba(255, 255, 255, 0.02);
-        box-shadow: var(--shadow-sm);
+        background: linear-gradient(180deg, rgba(13, 17, 23, 0.6), rgba(13, 17, 23, 0.4));
+        border: 1px solid rgba(0, 217, 255, 0.1);
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.04);
         overflow: auto;
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 18px;
+        backdrop-filter: blur(20px);
+        transition: all 0.3s ease;
+      }
+      .summary:hover {
+        border-color: rgba(0, 217, 255, 0.2);
+        box-shadow: 0 0 60px rgba(0, 217, 255, 0.15), inset 0 1px 1px rgba(255, 255, 255, 0.06);
       }
       .summary h4 {
         margin: 0;
@@ -333,15 +445,12 @@
       }
       .prob-bar {
         flex: 1;
-        height: 12px;
-        background: linear-gradient(
-          90deg,
-          rgba(255, 255, 255, 0.02),
-          rgba(255, 255, 255, 0.01)
-        );
+        height: 6px;
+        background: linear-gradient(90deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01));
         border-radius: 8px;
         overflow: hidden;
         position: relative;
+        box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
       }
       .prob-bar span {
         position: absolute;
@@ -352,13 +461,53 @@
         background: linear-gradient(90deg, var(--accent), var(--accent-2));
         display: block;
         border-radius: 8px;
-        box-shadow: 0 10px 30px rgba(8, 167, 255, 0.06);
+        box-shadow: 0 0 20px rgba(0, 217, 255, 0.4);
+        transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
       }
       .confidence {
         width: 46px;
         text-align: right;
         font-weight: 700;
         font-family: "Poppins", var(--mono);
+      }
+
+      /* Primary badge (circular progress) */
+      .primary-badge-wrap {
+        width: 64px;
+        height: 64px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        transition: transform 0.6s ease;
+        box-shadow: 0 6px 24px rgba(0,217,255,0.08), inset 0 1px 2px rgba(255,255,255,0.03);
+      }
+      #primaryBadgePercent {
+        font-weight: 700;
+        font-family: 'Poppins';
+        color: var(--accent-2);
+        z-index: 2;
+        position: absolute;
+        font-size: 14px;
+      }
+
+      /* SVG donut chart styles */
+      .circular-chart {
+        transform: rotate(-90deg);
+        overflow: visible;
+      }
+      .circular-chart .circle-bg {
+        fill: none;
+        stroke: rgba(255,255,255,0.03);
+        stroke-width: 2.8;
+      }
+      .circular-chart .circle {
+        fill: none;
+        stroke: var(--accent);
+        stroke-width: 3.2;
+        stroke-linecap: round;
+        transition: stroke-dasharray 0.9s cubic-bezier(0.22,1,0.36,1);
       }
 
       .summary .summary-text {
@@ -369,6 +518,16 @@
         line-height: 1.4;
         color: #cfe9ff;
       }
+
+      /* entrance animations for panels */
+      .upload-area, .summary, .conversation {
+        opacity: 0;
+        transform: translateY(10px);
+        transition: opacity 0.6s cubic-bezier(0.2,0.9,0.2,1), transform 0.6s cubic-bezier(0.2,0.9,0.2,1);
+      }
+      body.ready .upload-area { opacity: 1; transform: none; transition-delay: 0.08s }
+      body.ready .summary { opacity: 1; transform: none; transition-delay: 0.14s }
+      body.ready .conversation { opacity: 1; transform: none; transition-delay: 0.2s }
 
       .controls {
         display: flex;
@@ -412,17 +571,15 @@
       }
 
       .conversation {
-        background: linear-gradient(
-          180deg,
-          rgba(2, 6, 12, 0.6),
-          rgba(1, 3, 7, 0.5)
-        );
+        background: linear-gradient(180deg, rgba(13, 17, 23, 0.5), rgba(13, 17, 23, 0.3));
         border-radius: var(--soft-radius);
-        padding: 12px;
+        padding: 16px;
         display: flex;
         flex-direction: column;
         height: 100%;
-        border: 1px solid rgba(255, 255, 255, 0.02);
+        border: 1px solid rgba(0, 217, 255, 0.1);
+        backdrop-filter: blur(20px);
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.04);
       }
 
       .messages {
@@ -442,22 +599,17 @@
       }
       .msg.user {
         align-self: flex-end;
-        background: linear-gradient(
-          180deg,
-          rgba(255, 255, 255, 0.02),
-          rgba(255, 255, 255, 0.01)
-        );
-        color: #e6eefc;
+        background: linear-gradient(135deg, rgba(0, 217, 255, 0.15), rgba(0, 128, 255, 0.08));
+        color: #e8f0ff;
+        border: 1px solid rgba(0, 217, 255, 0.2);
+        box-shadow: 0 0 20px rgba(0, 217, 255, 0.15);
       }
       .msg.ai {
         align-self: flex-start;
-        background: linear-gradient(
-          180deg,
-          rgba(8, 167, 255, 0.06),
-          rgba(8, 167, 255, 0.03)
-        );
-        border: 1px solid rgba(8, 167, 255, 0.09);
+        background: linear-gradient(135deg, rgba(13, 17, 23, 0.8), rgba(13, 17, 23, 0.6));
+        border: 1px solid rgba(0, 217, 255, 0.15);
         color: #dff6ff;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
       }
 
       .typing {
@@ -495,6 +647,119 @@
         }
       }
 
+      /* ======== LOADING ANIMATIONS ======== */
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.4; }
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -1000px 0; }
+        100% { background-position: 1000px 0; }
+      }
+
+      @keyframes glow-pulse {
+        0%, 100% { box-shadow: 0 0 30px rgba(0, 217, 255, 0.2); }
+        50% { box-shadow: 0 0 60px rgba(0, 217, 255, 0.4); }
+      }
+
+      @keyframes slide-in {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-5px); }
+      }
+
+      @keyframes gradient-shift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid rgba(0, 217, 255, 0.2);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      .spinner.sm {
+        width: 20px;
+        height: 20px;
+        border-width: 2px;
+      }
+
+      .skeleton {
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.02) 0%,
+          rgba(255, 255, 255, 0.04) 50%,
+          rgba(255, 255, 255, 0.02) 100%
+        );
+        background-size: 1000px 100%;
+        animation: shimmer 2s infinite;
+        border-radius: 8px;
+      }
+
+      .skeleton.text {
+        height: 12px;
+        margin: 4px 0;
+      }
+
+      .skeleton.avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 10px;
+      }
+
+      .loader-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+      }
+
+      .loader-text {
+        font-size: 13px;
+        color: var(--muted);
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
+      .progress-bar {
+        width: 100%;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+
+      .progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        border-radius: 2px;
+        animation: shimmer 2s infinite;
+        width: 30%;
+      }
+
       .chat-input {
         display: flex;
         gap: 8px;
@@ -503,22 +768,51 @@
       }
       .chat-input textarea {
         flex: 1;
-        padding: 10px;
-        border-radius: 10px;
-        background: transparent;
-        border: 1px solid rgba(255, 255, 255, 0.03);
+        padding: 12px;
+        border-radius: 12px;
+        background: rgba(13, 17, 23, 0.6);
+        border: 1px solid rgba(0, 217, 255, 0.1);
         min-height: 44px;
         color: inherit;
         resize: none;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+      }
+      .chat-input textarea:focus {
+        outline: none;
+        border-color: rgba(0, 217, 255, 0.3);
+        box-shadow: 0 0 30px rgba(0, 217, 255, 0.2);
+        background: rgba(13, 17, 23, 0.8);
       }
       .chat-input button {
-        padding: 10px 14px;
-        border-radius: 10px;
-        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        padding: 12px 18px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, var(--accent), var(--accent-3));
         border: none;
         color: #04202e;
         font-weight: 700;
         cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 0 30px rgba(0, 217, 255, 0.3);
+        position: relative;
+        overflow: hidden;
+      }
+      .chat-input button::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: rgba(255, 255, 255, 0.2);
+        transition: left 0.3s ease;
+      }
+      .chat-input button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0 50px rgba(0, 217, 255, 0.5);
+      }
+      .chat-input button:hover::before {
+        left: 100%;
       }
 
       /* Login modal */
@@ -665,7 +959,7 @@
               ColonAI
             </div>
             <div style="font-size: 12px; color: var(--muted)">
-              Precision through vision — sign in
+              Precision through vision &mdash; sign in
             </div>
           </div>
         </div>
@@ -702,6 +996,9 @@
         </div>
       </div>
     </div>
+
+    <!-- Particle background canvas (subtle, interactive) -->
+    <canvas id="bgParticles" aria-hidden="true" style="position:fixed; inset:0; width:100%; height:100%; z-index:-3; pointer-events:none;"></canvas>
 
     <div class="app" id="app" aria-hidden="true">
       <!-- Topbar -->
@@ -825,7 +1122,7 @@
             </div>
           </div>
 
-         <div id="actionControls" style="display:flex; gap:8px; margin-bottom:10px;">
+         <div id="actionControls" style="display:flex; gap:8px; padding-right: 3px;">
 
               <button class="small-btn danger" id="cancelBtn">
                   Cancel Analysis
@@ -892,10 +1189,10 @@
             >
               <div style="flex: 1">
                 <div style="font-size: 13px; color: var(--muted)">
-                  Last analysis: <span id="lastAnalysis">—</span>
+                  Last analysis: <span id="lastAnalysis">&mdash;</span>
                 </div>
                 <div style="font-size: 12px; color: var(--muted)">
-                  Image dimensions: <span id="imgDims">—</span>
+                  Image dimensions: <span id="imgDims">&mdash;</span>
                 </div>
               </div>
               <div style="display: flex; gap: 8px">
@@ -928,24 +1225,24 @@
 
         <div style="display: flex; flex-direction: column; gap: 10px">
           <div style="display: flex; gap: 12px; align-items: center">
-            <div
-              style="
-                width: 64px;
-                height: 64px;
-                border-radius: 10px;
-                background: linear-gradient(180deg, #071124, #081425);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                border: 1px solid rgba(8, 167, 255, 0.05);
-              "
-            >
-              <div id="primaryBadgePercent" style="font-weight: 700; font-family: 'Poppins'">—</div>
+            <div class="primary-badge-wrap" aria-hidden="true">
+              <svg width="64" height="64" viewBox="0 0 36 36" class="circular-chart">
+                <path class="circle-bg"
+                  d="M18 2.0845
+                    a 15.9155 15.9155 0 0 1 0 31.831
+                    a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                <path id="primaryCircle" class="circle"
+                  stroke-dasharray="0, 100"
+                  d="M18 2.0845
+                    a 15.9155 15.9155 0 0 1 0 31.831
+                    a 15.9155 15.9155 0 0 1 0 -31.831"/>
+              </svg>
+              <div id="primaryBadgePercent">&mdash;</div>
             </div>
             <div>
               <div id="primaryLabel" style="font-weight: 700">No findings</div>
               <div id="primaryRegion" style="font-size: 13px; color: var(--muted)">
-                Region: —
+                Region: &mdash;
               </div>
             </div>
           </div>
@@ -1047,6 +1344,12 @@
 
   loginBtn.addEventListener("click", showApp);
   ghostSign.addEventListener("click", showApp);
+
+  // Trigger entrance animations after DOM ready
+  document.addEventListener('DOMContentLoaded', function () {
+    // small timeout to allow CSS to paint
+    setTimeout(() => document.body.classList.add('ready'), 120);
+  });
 
   // --- NAV ---
   const navItems = document.querySelectorAll(".nav-item");
@@ -1260,19 +1563,33 @@
       return;
     }
 
-    analyzeBtn.textContent = "Analyzing…";
+    analyzeBtn.textContent = "";
     analyzeBtn.disabled = true;
+
+    // Create spinner loader
+    const spinner = document.createElement("div");
+    spinner.className = "spinner sm";
+    analyzeBtn.appendChild(spinner);
+
+    const loaderText = document.createElement("span");
+    loaderText.textContent = " Analyzing…";
+    loaderText.style.marginLeft = "8px";
+    analyzeBtn.appendChild(loaderText);
 
     try {
       const data = await predictWithCancel(lastFile);
 
       if (!data) {
         aiSummary.innerHTML = "<b>⛔ Analysis canceled by user.</b>";
+        analyzeBtn.textContent = "Run Analysis";
+        analyzeBtn.disabled = false;
         return;
       }
 
       if (data.error) {
         aiSummary.textContent = `Error: ${data.error}`;
+        analyzeBtn.textContent = "Run Analysis";
+        analyzeBtn.disabled = false;
         return;
       }
 
@@ -1304,13 +1621,32 @@
 
         item.innerHTML = `
           <div class="label">${label}</div>
-          <div class="prob-bar"><span style="width:${pct}%"></span></div>
-          <div class="confidence">${pct}%</div>
+          <div class="prob-bar"><span style="width:0%"></span></div>
+          <div class="confidence" title="${pct}%">${pct}%</div>
         `;
         probContainer.appendChild(item);
+
+        // animate the bar fill with a slight stagger
+        const span = item.querySelector('.prob-bar span');
+        setTimeout(() => {
+          span.style.width = pct + '%';
+        }, 80 * i + 60);
       });
 
-      setTimeout(drawOverlaySample, 200);
+      // animate primary badge (use centralized SVG-based animator)
+      try {
+        if (typeof window.animatePrimaryBadge === 'function') {
+          window.animatePrimaryBadge(conf);
+        } else {
+          // Fallback: update percent text only
+          const badge = document.getElementById('primaryBadgePercent');
+          if (badge) badge.textContent = conf + '%';
+        }
+      } catch (e) {
+        console.warn('Badge animation failed', e);
+      }
+
+      setTimeout(drawOverlaySample, 260);
     } catch (err) {
       aiSummary.textContent = "Error: " + err.message;
     } finally {
@@ -1338,10 +1674,12 @@
 
     appendMessage(txt, "user");
     chatInput.value = "";
+    sendBtn.disabled = true;
 
+    // Create animated typing indicator with spinner
     const typingEl = document.createElement("div");
     typingEl.className = "msg ai";
-    typingEl.innerHTML = '<div class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>';
+    typingEl.innerHTML = '<div style="display: flex; align-items: center; gap: 8px;"><div class="spinner sm"></div><span class="loader-text">Thinking…</span></div>';
     messages.appendChild(typingEl);
 
     try {
@@ -1364,6 +1702,8 @@
     } catch (err) {
       typingEl.remove();
       appendMessage("Connection Error: " + err.message, "ai");
+    } finally {
+      sendBtn.disabled = false;
     }
   });
 
@@ -1382,8 +1722,18 @@
       return;
     }
 
-    downloadBtn.textContent = "Preparing…";
+    downloadBtn.textContent = "";
     downloadBtn.disabled = true;
+
+    // Create spinner loader
+    const spinner = document.createElement("div");
+    spinner.className = "spinner sm";
+    downloadBtn.appendChild(spinner);
+
+    const loaderText = document.createElement("span");
+    loaderText.textContent = " Preparing report…";
+    loaderText.style.marginLeft = "8px";
+    downloadBtn.appendChild(loaderText);
 
     const lastAIs = [...messages.querySelectorAll(".msg.ai")];
     const lastAiText =
@@ -1438,7 +1788,78 @@
 })();  
 </script>
 
+<!-- Extra UI animations: particle background and badge animation -->
+<script>
+// Particle background - lightweight canvas
+(function(){
+  const canvas = document.getElementById('bgParticles');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let w, h, particles = [];
 
+  function resize(){
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function rand(min,max){ return Math.random()*(max-min)+min }
+
+  function init(){
+    particles = [];
+    const count = Math.max(12, Math.floor((w*h)/150000));
+    for(let i=0;i<count;i++){
+      particles.push({
+        x: rand(0,w), y: rand(0,h), r: rand(0.6,2.6), xa: rand(-0.3,0.3), ya: rand(-0.3,0.3)
+      });
+    }
+  }
+  init();
+
+  let mouse = {x:-9999,y:-9999};
+  window.addEventListener('mousemove', e=>{ mouse.x=e.clientX; mouse.y=e.clientY });
+  window.addEventListener('mouseout', ()=>{ mouse.x=-9999; mouse.y=-9999 });
+
+  function step(){
+    ctx.clearRect(0,0,w,h);
+    for(let p of particles){
+      p.x += p.xa; p.y += p.ya;
+      if (p.x < 0 || p.x > w) p.x = (p.x+w)%w;
+      if (p.y < 0 || p.y > h) p.y = (p.y+h)%h;
+      // draw soft orb
+      const grd = ctx.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*12);
+      grd.addColorStop(0, 'rgba(0,217,255,0.06)');
+      grd.addColorStop(1, 'rgba(0,217,255,0)');
+      ctx.beginPath(); ctx.fillStyle = grd; ctx.arc(p.x,p.y,p.r*6,0,Math.PI*2); ctx.fill();
+      // attraction to mouse
+      const dx = mouse.x - p.x, dy = mouse.y - p.y;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      if (dist < 160){ p.xa += dx/dist*0.02; p.ya += dy/dist*0.02 }
+    }
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+
+  // Re-init periodically to adapt to size/density
+  setInterval(init, 8000);
+})();
+
+// Animate SVG donut badge when results update
+(function(){
+  function animateBadge(percent){
+    const circle = document.getElementById('primaryCircle');
+    const badge = document.getElementById('primaryBadgePercent');
+    if (!circle || !badge) return;
+    const pct = Math.max(0, Math.min(100, Math.round(percent)));
+    const dash = (pct/100)*100;
+    circle.setAttribute('stroke-dasharray', dash + ', 100');
+    badge.textContent = pct + '%';
+  }
+  // Expose globally for earlier code to call
+  window.animatePrimaryBadge = animateBadge;
+})();
+</script>
 
   </body>
 </html>
